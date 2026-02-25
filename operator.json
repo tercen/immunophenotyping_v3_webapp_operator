@@ -1,0 +1,11 @@
+{
+  "name": "Flow Immunophenotyping - PhenoGraph",
+  "description": "Automated immunophenotyping pipeline for flow cytometry data using PhenoGraph clustering, UMAP visualization, and differential analysis.",
+  "isWebApp": true,
+  "isViewOnly": false,
+  "entryType": "app",
+  "serve": "build/web",
+  "tags": ["flow cytometry", "immunophenotyping", "clustering"],
+  "authors": ["tercen"],
+  "urls": ["https://github.com/tercen/immunophenotyping_v3_webapp_operator"]
+}
