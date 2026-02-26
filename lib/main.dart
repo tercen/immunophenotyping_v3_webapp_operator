@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sci_tercen_client/sci_client_service_factory.dart';
+import 'package:sci_tercen_client/sci_service_factory_web.dart';
 
 import 'core/theme/app_theme.dart';
 import 'di/service_locator.dart';
@@ -25,26 +27,52 @@ void main() async {
     );
   };
 
+  const useMocks = bool.fromEnvironment('USE_MOCKS', defaultValue: false);
+
+  ServiceFactory? factory;
+  String? projectId;
+
+  if (!useMocks) {
+    try {
+      projectId = Uri.base.queryParameters['projectId'];
+      if (projectId == null || projectId.isEmpty) {
+        runApp(_buildErrorApp('Missing projectId parameter'));
+        return;
+      }
+      factory = await createServiceFactoryForWebApp();
+    } catch (e) {
+      print('Tercen init failed: $e');
+    }
+  }
+
   try {
-    setupServiceLocator(useMocks: true);
+    setupServiceLocator(
+      useMocks: factory == null,
+      factory: factory,
+      projectId: projectId,
+    );
     final prefs = await SharedPreferences.getInstance();
     runApp(ImmunophenotypingApp(prefs: prefs));
   } catch (e, stack) {
-    debugPrint('STARTUP ERROR: $e\n$stack');
-    runApp(MaterialApp(
-      home: Scaffold(
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: SelectableText(
-              'STARTUP ERROR:\n$e\n\n$stack',
-              style: const TextStyle(color: Colors.red, fontSize: 12),
-            ),
+    print('STARTUP ERROR: $e\n$stack');
+    runApp(_buildErrorApp('STARTUP ERROR:\n$e\n\n$stack'));
+  }
+}
+
+Widget _buildErrorApp(String message) {
+  return MaterialApp(
+    home: Scaffold(
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: SelectableText(
+            message,
+            style: const TextStyle(color: Colors.red, fontSize: 12),
           ),
         ),
       ),
-    ));
-  }
+    ),
+  );
 }
 
 class ImmunophenotypingApp extends StatelessWidget {

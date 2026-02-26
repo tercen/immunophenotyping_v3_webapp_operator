@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:web/web.dart' as web;
 import '../../core/theme/app_colors.dart';
@@ -43,6 +44,9 @@ class UploadZone extends StatefulWidget {
   /// Called when all files reach a terminal state and at least one succeeded.
   final VoidCallback? onAllUploadsComplete;
 
+  /// File type filter for the browser file picker (e.g. '.fcs,.zip').
+  final String? accept;
+
   /// Maximum width constraint.
   final double maxWidth;
 
@@ -55,6 +59,7 @@ class UploadZone extends StatefulWidget {
     this.initialFiles,
     this.onFilesChanged,
     this.onAllUploadsComplete,
+    this.accept,
     this.maxWidth = defaultMaxWidth,
   });
 
@@ -70,17 +75,6 @@ class _UploadZoneState extends State<UploadZone> {
   final Map<String, Timer> _uploadTimers = {};
   final List<StreamSubscription> _dragSubscriptions = [];
   int _idCounter = 0;
-  int _uploadAttemptCount = 0;
-
-  // Mock file pool — cycles through these on each click
-  static const _mockFilePool = [
-    ('sample_001.fcs', 245760),
-    ('sample_002.fcs', 512000),
-    ('donor_A_panel1.fcs', 1048576),
-    ('donor_B_panel2.fcs', 768000),
-    ('annotation.csv', 4096),
-    ('omip69_data.zip', 2457600),
-  ];
 
   @override
   void initState() {
@@ -127,10 +121,11 @@ class _UploadZoneState extends State<UploadZone> {
         event.preventDefault();
         _dragCounter = 0;
         setState(() => _dragging = false);
-        // Add one mock file per dropped file (or 1 if count unavailable)
-        final fileCount = event.dataTransfer?.files.length ?? 1;
-        for (int i = 0; i < fileCount; i++) {
-          _simulateFileAdd();
+        final files = event.dataTransfer?.files;
+        if (files != null) {
+          for (int i = 0; i < files.length; i++) {
+            _readBrowserFile(files.item(i)!);
+          }
         }
       }).toJS,
     );
@@ -159,76 +154,86 @@ class _UploadZoneState extends State<UploadZone> {
   }
 
   // ---------------------------------------------------------------------------
-  // Mock simulation
+  // File reading (browser File API)
   // ---------------------------------------------------------------------------
 
-  void _simulateFileAdd() {
-    _idCounter++;
-    final pick = _mockFilePool[_idCounter % _mockFilePool.length];
-    final id = '${DateTime.now().millisecondsSinceEpoch}_$_idCounter';
+  /// Open a native file picker via a hidden <input type="file"> element.
+  void _openFilePicker() {
+    final input = web.HTMLInputElement()
+      ..type = 'file'
+      ..multiple = true;
+    if (widget.accept != null) {
+      input.accept = widget.accept!;
+    }
+    input.addEventListener(
+      'change',
+      ((web.Event _) {
+        final files = input.files;
+        if (files != null) {
+          for (int i = 0; i < files.length; i++) {
+            _readBrowserFile(files.item(i)!);
+          }
+        }
+      }).toJS,
+    );
+    input.click();
+  }
 
-    final file = UploadFile(
+  /// Read a browser File object's bytes via FileReader, then add to the list.
+  void _readBrowserFile(web.File browserFile) {
+    _idCounter++;
+    final id = '${DateTime.now().millisecondsSinceEpoch}_$_idCounter';
+    final filename = browserFile.name;
+    final fileSize = browserFile.size;
+
+    // Add immediately in uploading state
+    final entry = UploadFile(
       id: id,
-      filename: pick.$1,
-      fileSize: pick.$2,
+      filename: filename,
+      fileSize: fileSize,
       status: UploadFileStatus.uploading,
       progress: 0.0,
     );
-
     setState(() {
-      _files = [..._files, file];
+      _files = [..._files, entry];
     });
-    _startUploadSimulation(file.id, isRetry: false);
-  }
 
-  void _startUploadSimulation(String fileId, {required bool isRetry}) {
-    const totalDurationMs = 1500;
-    const tickIntervalMs = 50;
-    final totalTicks = totalDurationMs / tickIntervalMs;
-    int currentTick = 0;
-
-    _uploadTimers[fileId] = Timer.periodic(
-      const Duration(milliseconds: tickIntervalMs),
-      (timer) {
-        currentTick++;
-        final progress = (currentTick / totalTicks).clamp(0.0, 1.0);
-
-        if (currentTick >= totalTicks) {
-          timer.cancel();
-          _uploadTimers.remove(fileId);
-
-          // Every 3rd non-retry upload errors
-          final isError = !isRetry && _shouldSimulateError();
-          _updateFile(
-            fileId,
-            status:
-                isError ? UploadFileStatus.error : UploadFileStatus.success,
-            progress: 1.0,
-            errorMessage: isError ? 'Simulated upload failure' : null,
-          );
-          _notifyParentStateChange();
-          _checkAllComplete();
-        } else {
-          // Only update progress visually, don't notify parent
-          _updateFileProgress(fileId, progress);
-        }
-      },
+    // Read bytes asynchronously
+    final reader = web.FileReader();
+    reader.addEventListener(
+      'load',
+      ((web.Event _) {
+        final arrayBuffer = reader.result as JSArrayBuffer;
+        final bytes = arrayBuffer.toDart.asUint8List();
+        _updateFile(
+          id,
+          status: UploadFileStatus.success,
+          progress: 1.0,
+          bytes: bytes,
+        );
+        _notifyParentStateChange();
+        _checkAllComplete();
+      }).toJS,
     );
-  }
-
-  bool _shouldSimulateError() {
-    _uploadAttemptCount++;
-    return _uploadAttemptCount % 3 == 0;
+    reader.addEventListener(
+      'error',
+      ((web.Event _) {
+        _updateFile(
+          id,
+          status: UploadFileStatus.error,
+          progress: 0.0,
+          errorMessage: 'Failed to read file',
+        );
+        _notifyParentStateChange();
+      }).toJS,
+    );
+    reader.readAsArrayBuffer(browserFile);
   }
 
   void _retryFile(String fileId) {
-    _updateFile(
-      fileId,
-      status: UploadFileStatus.uploading,
-      progress: 0.0,
-      errorMessage: null,
-    );
-    _startUploadSimulation(fileId, isRetry: true);
+    // Remove the failed entry — user must re-pick
+    _removeFile(fileId);
+    _openFilePicker();
   }
 
   void _removeFile(String fileId) {
@@ -241,22 +246,13 @@ class _UploadZoneState extends State<UploadZone> {
     _notifyParentStateChange();
   }
 
-  /// Update file progress only (visual, no parent notification).
-  void _updateFileProgress(String fileId, double progress) {
-    setState(() {
-      _files = _files.map((f) {
-        if (f.id == fileId) return f.copyWith(progress: progress);
-        return f;
-      }).toList();
-    });
-  }
-
   /// Update file state (status change — notifies parent).
   void _updateFile(
     String fileId, {
     UploadFileStatus? status,
     double? progress,
     String? errorMessage,
+    Uint8List? bytes,
   }) {
     setState(() {
       _files = _files.map((f) {
@@ -265,6 +261,7 @@ class _UploadZoneState extends State<UploadZone> {
             status: status,
             progress: progress,
             errorMessage: errorMessage,
+            bytes: bytes,
           );
         }
         return f;
@@ -354,7 +351,7 @@ class _UploadZoneState extends State<UploadZone> {
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
-        onTap: _simulateFileAdd,
+        onTap: _openFilePicker,
         child: CustomPaint(
           painter: _DashedBorderPainter(
             color: borderColor,

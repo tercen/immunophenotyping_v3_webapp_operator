@@ -39,7 +39,7 @@ class StatusSection extends StatelessWidget {
     if (provider.isRunning) {
       stateLabel = 'Running';
       stateColor = isDark ? AppColorsDark.primary : AppColors.primary;
-      statusMessage = '${provider.completedSteps} of ${AppStateProvider.totalSteps} steps complete';
+      statusMessage = '${provider.completedSteps} of ${provider.totalSteps} steps complete';
     } else if (provider.contentMode == ContentMode.display) {
       final run = provider.selectedRun;
       final result = provider.currentResult;
@@ -112,7 +112,7 @@ class StatusSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               LinearProgressIndicator(
-                value: provider.completedSteps / AppStateProvider.totalSteps,
+                value: provider.completedSteps / provider.totalSteps,
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(

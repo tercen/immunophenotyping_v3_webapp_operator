@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 /// Status of an individual file within an UploadZone.
 enum UploadFileStatus {
   /// Currently uploading — progress is between 0.0 and 1.0.
@@ -33,6 +35,9 @@ class UploadFile {
   /// Error message when status == error.
   final String? errorMessage;
 
+  /// Raw file bytes (populated from browser File API in real mode).
+  final Uint8List? bytes;
+
   const UploadFile({
     required this.id,
     required this.filename,
@@ -40,6 +45,7 @@ class UploadFile {
     this.status = UploadFileStatus.uploading,
     this.progress = 0.0,
     this.errorMessage,
+    this.bytes,
   });
 
   /// Create a copy with updated fields.
@@ -47,6 +53,7 @@ class UploadFile {
     UploadFileStatus? status,
     double? progress,
     String? errorMessage,
+    Uint8List? bytes,
   }) {
     return UploadFile(
       id: id,
@@ -55,6 +62,7 @@ class UploadFile {
       status: status ?? this.status,
       progress: progress ?? this.progress,
       errorMessage: errorMessage,
+      bytes: bytes ?? this.bytes,
     );
   }
 

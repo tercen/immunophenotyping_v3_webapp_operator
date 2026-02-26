@@ -11,7 +11,7 @@ import '../../presentation/providers/app_state_provider.dart';
 ///
 /// Loads real data from JSON assets in assets/data/.
 /// Pre-populates 3 run history entries (1 complete, 1 stopped, 1 error).
-class MockDataService implements DataService {
+class MockDataService extends DataService {
   List<FcsChannel>? _cachedChannels;
   List<ClusterMarker>? _cachedClusterMarkers;
   List<EventCount>? _cachedEventCounts;

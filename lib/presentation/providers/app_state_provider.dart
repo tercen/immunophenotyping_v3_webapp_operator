@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../di/service_locator.dart';
 import '../../domain/models/fcs_channel.dart';
@@ -64,6 +65,12 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Load teams for project setup (Stage 0)
+      final teams = await _dataService.getTeams();
+      _availableTeams =
+          teams.isNotEmpty ? teams : ['My Team'];
+      _selectedTeam = _availableTeams.first;
+
       final history = await _dataService.getRunHistory();
       _runHistory = history;
       final channels = await _dataService.getChannels();
@@ -125,8 +132,8 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<String> get availableTeams =>
-      ['My Team', 'Lab Alpha', 'Research Group B', 'Demo Team'];
+  List<String> _availableTeams = [];
+  List<String> get availableTeams => _availableTeams;
 
   // =============================================
   // Stage 1: Upload FCS Files
@@ -162,6 +169,8 @@ class AppStateProvider extends ChangeNotifier {
     _fcsChannelCount = 0;
     _fcsTotalEvents = 0;
     _fcsUploaded = false;
+    _fcsBytes = null;
+    _fcsUploadFilename = null;
     notifyListeners();
   }
 
@@ -195,8 +204,21 @@ class AppStateProvider extends ChangeNotifier {
     _annotationConditions = [];
     _annotationCrossCheckPassed = false;
     _annotationUploaded = false;
+    _annotationBytes = null;
+    _annotationUploadFilename = null;
     notifyListeners();
   }
+
+  // =============================================
+  // Raw file bytes for Tercen upload
+  // =============================================
+  Uint8List? _fcsBytes;
+  Uint8List? get fcsBytes => _fcsBytes;
+  String? _fcsUploadFilename;
+
+  Uint8List? _annotationBytes;
+  Uint8List? get annotationBytes => _annotationBytes;
+  String? _annotationUploadFilename;
 
   /// Bridge: update FCS upload state from UploadZone file list.
   void updateFcsUploadFromFiles(List<UploadFile> files) {
@@ -212,10 +234,18 @@ class AppStateProvider extends ChangeNotifier {
         ? successFiles.first.filename
         : '${successFiles.length} files';
     _fcsFileSize = successFiles.fold(0, (sum, f) => sum + f.fileSize);
-    _fcsFileCount = 4; // Mock: simulate 4 FCS files inside a zip
+    _fcsFileCount = 4; // Estimated — real count determined by workflow
     _fcsChannelCount = 38;
     _fcsTotalEvents = 4082;
     _fcsUploaded = true;
+
+    // Capture bytes for Tercen upload
+    final firstWithBytes =
+        successFiles.where((f) => f.bytes != null).firstOrNull;
+    if (firstWithBytes != null) {
+      _fcsBytes = firstWithBytes.bytes;
+      _fcsUploadFilename = firstWithBytes.filename;
+    }
     notifyListeners();
   }
 
@@ -230,10 +260,18 @@ class AppStateProvider extends ChangeNotifier {
     }
 
     _annotationFilename = successFiles.first.filename;
-    _annotationSampleCount = 4;
+    _annotationSampleCount = 4; // Estimated — real count determined by workflow
     _annotationConditions = ['Donor1', 'Donor2', 'Donor3', 'Donor4'];
     _annotationCrossCheckPassed = true;
     _annotationUploaded = true;
+
+    // Capture bytes for Tercen upload
+    final firstWithBytes =
+        successFiles.where((f) => f.bytes != null).firstOrNull;
+    if (firstWithBytes != null) {
+      _annotationBytes = firstWithBytes.bytes;
+      _annotationUploadFilename = firstWithBytes.filename;
+    }
     notifyListeners();
   }
 
@@ -417,49 +455,15 @@ class AppStateProvider extends ChangeNotifier {
   RunResult? get currentResult => _currentResult;
 
   // =============================================
-  // Running simulation (mock mode)
+  // Workflow execution state
   // =============================================
-  Timer? _runTimer;
   int _completedSteps = 0;
   int get completedSteps => _completedSteps;
-  static const int totalSteps = 31;
+  int _totalSteps = 31;
+  int get totalSteps => _totalSteps;
   String _currentRunningStep = '';
   String get currentRunningStep => _currentRunningStep;
   String? _pendingRunId;
-
-  static const _mockStepNames = [
-    'Read FCS Files',
-    'Parse Channel Metadata',
-    'Validate Input Data',
-    'Downsample Events',
-    'Logicle Transform',
-    'Quality Control Filtering',
-    'Build Nearest-Neighbor Graph',
-    'PhenoGraph Clustering',
-    'Assign Cluster Labels',
-    'Compute UMAP Embedding',
-    'Generate UMAP Plot',
-    'Cluster Color Assignment',
-    'Enrichment Score Calculation',
-    'Enrichment Heatmap',
-    'Top Marker Identification',
-    'Cluster Marker Table',
-    'UMAP by Marker Grid',
-    'Cell Proportion Counts',
-    'Proportion by Sample',
-    'Proportion by Condition',
-    'UMAP by Condition',
-    'Statistical Comparison',
-    'Event Count Summary',
-    'Marker Histogram Generation',
-    'Channel Reference Table',
-    'Compile PDF Report',
-    'Generate PowerPoint',
-    'Export Enriched FCS',
-    'Finalize Results',
-    'Write Output Tables',
-    'Cleanup Temporary Data',
-  ];
 
   // =============================================
   // Input completion per stage
@@ -509,36 +513,117 @@ class AppStateProvider extends ChangeNotifier {
     }
   }
 
-  /// Start a run. Simulates running state with a timer, then transitions
-  /// to Display mode when all steps complete.
+  /// Start a run: clone template, upload files, set properties, execute workflow.
   void startRun() {
-    final runId = 'run_${DateTime.now().millisecondsSinceEpoch}';
     final name = _runName.isNotEmpty ? _runName : defaultRunName;
-    _pendingRunId = runId;
 
-    // Enter running state
+    // Enter running state immediately
     _appState = AppState.running;
     _completedSteps = 0;
-    _currentRunningStep = _mockStepNames[0];
+    _currentRunningStep = 'Preparing workflow...';
     _headerHeading = name;
     notifyListeners();
 
-    // Simulate step progress with a periodic timer
-    _runTimer?.cancel();
-    _runTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
-      _completedSteps++;
-      if (_completedSteps >= totalSteps) {
-        // All steps done — finalize the run
-        timer.cancel();
-        _runTimer = null;
-        _currentRunningStep = '';
-        _finishRun(runId, name, 'complete');
+    _executeWorkflow(name);
+  }
+
+  /// Async workflow execution — clone, upload, configure, run.
+  Future<void> _executeWorkflow(String name) async {
+    try {
+      // 1. Clone workflow template
+      _currentRunningStep = 'Cloning workflow template...';
+      notifyListeners();
+      final workflowId =
+          await _dataService.cloneWorkflowTemplate(_projectId);
+      _pendingRunId = workflowId;
+
+      // 2. Get total step count for progress
+      _totalSteps = await _dataService.getWorkflowStepCount(workflowId);
+      if (_totalSteps == 0) _totalSteps = 31; // fallback
+
+      // 3. Upload FCS file
+      String fcsFileDocId = '';
+      if (_fcsBytes != null) {
+        _currentRunningStep = 'Uploading FCS data...';
+        notifyListeners();
+        fcsFileDocId = await _dataService.uploadFile(
+          _fcsUploadFilename ?? _fcsFilename ?? 'fcs_data.zip',
+          _fcsBytes!,
+          _projectId,
+        );
+      }
+
+      // 4. Upload annotation file
+      String annotationFileDocId = '';
+      if (_annotationBytes != null) {
+        _currentRunningStep = 'Uploading annotation...';
+        notifyListeners();
+        annotationFileDocId = await _dataService.uploadFile(
+          _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
+          _annotationBytes!,
+          _projectId,
+        );
+      }
+
+      // 5. Set workflow properties
+      _currentRunningStep = 'Configuring workflow...';
+      notifyListeners();
+      final selected = _selectedChannels.entries
+          .where((e) => e.value)
+          .map((e) => e.key)
+          .toList();
+      await _dataService.setWorkflowProperties(
+        workflowId,
+        selectedChannels: selected,
+        maxEventsPerFile: _maxEventsPerFile,
+        phenographK: _phenographK,
+        umapNNeighbors: _umapNNeighbors,
+        umapMinDist: _umapMinDist,
+        randomSeed: _randomSeed,
+        fcsFileDocId: fcsFileDocId,
+        annotationFileDocId: annotationFileDocId,
+      );
+
+      // 6. Run workflow with progress callbacks
+      _currentRunningStep = 'Starting execution...';
+      notifyListeners();
+      await _dataService.runWorkflow(
+        workflowId,
+        onProgress: (message, actual, total) {
+          _completedSteps = actual;
+          if (total > 0) _totalSteps = total;
+          _currentRunningStep = message;
+          notifyListeners();
+        },
+        onLog: (message) {
+          _currentRunningStep = message;
+          notifyListeners();
+        },
+        onComplete: (wfId) {
+          _currentRunningStep = '';
+          _finishRun(wfId, name, 'complete');
+        },
+        onError: (error, reason) {
+          _currentRunningStep = '';
+          _finishRun(workflowId, name, 'error');
+        },
+      );
+    } catch (e) {
+      print('Workflow execution error: $e');
+      if (_pendingRunId != null) {
+        _finishRun(_pendingRunId!, name, 'error');
       } else {
-        _currentRunningStep = _mockStepNames[_completedSteps];
+        _appState = AppState.waiting;
+        _currentRunningStep = '';
+        _error = e.toString();
         notifyListeners();
       }
-    });
+    }
   }
+
+  /// The projectId from main.dart, accessed for file uploads.
+  String get _projectId =>
+      serviceLocator<String>(instanceName: 'projectId');
 
   /// Finalize a run (complete or stopped) and transition to Display mode.
   void _finishRun(String runId, String name, String status) {
@@ -576,23 +661,21 @@ class AppStateProvider extends ChangeNotifier {
 
   Future<void> _loadResults(String runId) async {
     try {
-      // For mock new runs, use run_1 results (complete)
-      final resultId =
-          (runId == 'run_1' || runId == 'run_2' || runId == 'run_3')
-              ? runId
-              : 'run_1';
-      _currentResult = await _dataService.getResults(resultId);
+      _currentResult = await _dataService.getResults(runId);
       notifyListeners();
-    } catch (_) {
-      // Silently handle errors in mock mode
+    } catch (e) {
+      print('Error loading results for $runId: $e');
     }
   }
 
-  /// Stop the current run. Cancels timer, saves partial run as 'stopped',
+  /// Stop the current run. Cancels the workflow task, saves as 'stopped',
   /// then returns to Input Stage 3.
   void stopRun() {
-    _runTimer?.cancel();
-    _runTimer = null;
+    // Cancel the real workflow task if running.
+    // Pass empty string — the service uses its internal task ID as fallback.
+    if (_appState == AppState.running) {
+      _dataService.cancelRun('');
+    }
 
     // If a run was in progress, save it as stopped
     if (_pendingRunId != null) {
@@ -610,7 +693,7 @@ class AppStateProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _runTimer?.cancel();
+    _dataService.cancelRun('');
     super.dispose();
   }
 
@@ -632,6 +715,12 @@ class AppStateProvider extends ChangeNotifier {
     _annotationConditions = [];
     _annotationCrossCheckPassed = false;
     _annotationUploaded = false;
+
+    // Clear file bytes
+    _fcsBytes = null;
+    _fcsUploadFilename = null;
+    _annotationBytes = null;
+    _annotationUploadFilename = null;
 
     // Reset channel selection to defaults
     for (final ch in _allChannels) {
@@ -713,8 +802,11 @@ class AppStateProvider extends ChangeNotifier {
     navigateToStage(1);
   }
 
-  /// Delete a run and its results.
+  /// Delete a run and its workflow from the project.
   void deleteRun(String runId) {
+    // Delete the workflow on Tercen (async, fire-and-forget)
+    _dataService.deleteWorkflow(runId);
+
     _runHistory.removeWhere((r) => r.id == runId);
     if (_selectedRunId == runId) {
       if (_runHistory.isNotEmpty) {

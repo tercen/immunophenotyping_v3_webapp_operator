@@ -15,19 +15,12 @@ dependencies:
   font_awesome_flutter: ^10.8.0
   csv: ^6.0.0
   web: ^0.5.1
-  # Tercen context API — required for Phase 3 (real data integration)
-  # Provides R/Python-style ctx object: ctx.select(), ctx.cselect(), ctx.rselect()
-  # Always use the latest version tag from https://github.com/tercen/sci_tercen_client
-  sci_tercen_context:
-    git:
-      url: https://github.com/tercen/sci_tercen_client
-      ref: 1.12.0  # Update to latest version
-      path: sci_tercen_context
-  # Tercen client — needed for createServiceFactoryForWebApp()
+  # Tercen client — entity services for Flow E (workflow execution).
+  # No sci_tercen_context needed: Type 3 apps use services directly.
   sci_tercen_client:
     git:
-      url: https://github.com/tercen/sci_tercen_client
-      ref: 1.12.0  # Must match sci_tercen_context version
+      url: https://github.com/tercen/sci_tercen_client.git
+      ref: 1.15.1
       path: sci_tercen_client
 
 dev_dependencies:

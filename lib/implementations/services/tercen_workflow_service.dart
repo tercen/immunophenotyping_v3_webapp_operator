@@ -1,0 +1,659 @@
+import 'dart:typed_data';
+import 'package:sci_tercen_client/sci_client_service_factory.dart';
+import 'package:sci_tercen_client/sci_client.dart' hide ServiceFactory;
+import '../../domain/models/cluster_marker.dart';
+import '../../domain/models/event_count.dart';
+import '../../domain/models/fcs_channel.dart';
+import '../../domain/models/run_result.dart';
+import '../../domain/services/data_service.dart';
+import '../../presentation/providers/app_state_provider.dart';
+
+/// Template workflow name to search for when cloning.
+const _templateWorkflowName = 'Flow Immunophenotyping - PhenoGraph';
+
+/// Real Tercen data service for Flow E (Type 3 workflow manager).
+///
+/// Uses entity services directly — no OperatorContext.
+/// Each "run" is a cloned workflow in the project.
+class TercenWorkflowService implements DataService {
+  final ServiceFactory _factory;
+  final String _projectId;
+
+  /// Cache the template workflow ID after first lookup.
+  String? _templateWorkflowId;
+
+  /// Track the running task ID for cancellation.
+  String? _runningTaskId;
+
+  TercenWorkflowService(this._factory, this._projectId);
+
+  // =============================================
+  // Run history — list cloned workflows in project
+  // =============================================
+
+  @override
+  Future<List<RunEntry>> getRunHistory() async {
+    try {
+      final allDocs = await _factory.projectDocumentService
+          .findProjectObjectsByLastModifiedDate(
+        startKey: [_projectId, ''],
+        endKey: [_projectId, '\uf000'],
+        useFactory: true,
+      );
+      final workflows =
+          allDocs.whereType<Workflow>().toList();
+
+      final entries = <RunEntry>[];
+      for (final wf in workflows) {
+        // Skip the template itself
+        if (wf.name == _templateWorkflowName) continue;
+
+        final status = _determineWorkflowStatus(wf);
+        final settings = await _extractSettingsFromWorkflow(wf);
+
+        entries.add(RunEntry(
+          id: wf.id,
+          name: wf.name,
+          timestamp: DateTime.tryParse(wf.lastModifiedDate.value) ??
+              DateTime.now(),
+          status: status,
+          settings: settings,
+        ));
+      }
+
+      // Most recent first
+      entries.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      return entries;
+    } catch (e) {
+      print('Tercen error in getRunHistory: $e');
+      await _printDiagnosticReport();
+      rethrow;
+    }
+  }
+
+  /// Determine workflow status from step states.
+  String _determineWorkflowStatus(Workflow wf) {
+    bool anyFailed = false;
+    bool anyRunning = false;
+    bool allDone = true;
+
+    for (final step in wf.steps) {
+      final taskState = step.state.taskState;
+      if (taskState is FailedState) {
+        anyFailed = true;
+        allDone = false;
+      } else if (taskState is RunningState || taskState is PendingState) {
+        anyRunning = true;
+        allDone = false;
+      } else if (taskState is! DoneState) {
+        allDone = false;
+      }
+    }
+
+    if (anyFailed) return 'error';
+    if (anyRunning) return 'running';
+    if (allDone && wf.steps.isNotEmpty) return 'complete';
+    return 'stopped';
+  }
+
+  /// Extract settings summary from workflow step properties.
+  Future<Map<String, dynamic>> _extractSettingsFromWorkflow(
+      Workflow wf) async {
+    final settings = <String, dynamic>{};
+
+    for (final step in wf.steps) {
+      if (step is! DataStep) continue;
+      final props = step.model.operatorSettings.operatorRef.propertyValues;
+      for (final pv in props) {
+        settings[pv.name] = pv.value;
+      }
+    }
+
+    return settings;
+  }
+
+  // =============================================
+  // Results — read step outputs from a workflow
+  // =============================================
+
+  @override
+  Future<RunResult> getResults(String workflowId) async {
+    try {
+      final wf = await _factory.workflowService.get(workflowId);
+
+      // Find the failed step if any
+      String? failedStep;
+      String? errorMessage;
+      for (final step in wf.steps) {
+        if (step.state.taskState is FailedState) {
+          final failed = step.state.taskState as FailedState;
+          failedStep = step.name;
+          errorMessage = '${failed.error}: ${failed.reason}';
+          break;
+        }
+      }
+
+      // Read cluster markers from enrichment score step output
+      final clusterMarkers = await _readClusterMarkers(wf);
+
+      // Read event counts from downsample/QC step output
+      final eventCounts = await _readEventCounts(wf);
+
+      // Read channel reference
+      final channels = await _readChannelReference(wf);
+
+      // Count clusters from PhenoGraph output
+      final clusterCount = _countUniqueClusters(clusterMarkers);
+
+      return RunResult(
+        clusterCount: clusterCount,
+        clusterMarkers: clusterMarkers,
+        eventCounts: eventCounts,
+        channelReference: channels,
+        errorMessage: errorMessage,
+        failedStep: failedStep,
+      );
+    } catch (e) {
+      print('Tercen error in getResults: $e');
+      await _printDiagnosticReport();
+      rethrow;
+    }
+  }
+
+  int _countUniqueClusters(List<ClusterMarker> markers) {
+    return markers.map((m) => m.cluster).toSet().length;
+  }
+
+  /// Read cluster marker enrichment data from the workflow step output.
+  Future<List<ClusterMarker>> _readClusterMarkers(Workflow wf) async {
+    try {
+      final table = await _readStepOutput(wf, 'Marker Enrichment Score');
+      if (table == null) return [];
+
+      final clusters = _getColumnValues<String>(table, 'cluster');
+      final markers = _getColumnValues<String>(table, 'marker');
+      final scores = _getColumnValues<double>(table, 'enrichmentScore');
+      final pValues = _getColumnValues<double>(table, 'pValue');
+
+      if (clusters == null || markers == null) return [];
+
+      final results = <ClusterMarker>[];
+      for (int i = 0; i < clusters.length; i++) {
+        results.add(ClusterMarker(
+          cluster: clusters[i],
+          marker: markers[i],
+          enrichmentScore: scores != null && i < scores.length ? scores[i] : 0,
+          pValue: pValues != null && i < pValues.length ? pValues[i] : 1,
+        ));
+      }
+      return results;
+    } catch (e) {
+      print('Warning: could not read cluster markers: $e');
+      return [];
+    }
+  }
+
+  /// Read event count data from the workflow step output.
+  Future<List<EventCount>> _readEventCounts(Workflow wf) async {
+    try {
+      final table = await _readStepOutput(wf, 'Downsample');
+      if (table == null) return [];
+
+      final filenames = _getColumnValues<String>(table, 'filename');
+      final rawEvents = _getColumnValues<int>(table, 'rawEvents');
+      final postFilter = _getColumnValues<int>(table, 'postFilterEvents');
+
+      if (filenames == null) return [];
+
+      final results = <EventCount>[];
+      for (int i = 0; i < filenames.length; i++) {
+        results.add(EventCount(
+          filename: filenames[i],
+          rawEvents: rawEvents != null && i < rawEvents.length
+              ? rawEvents[i]
+              : 0,
+          postFilterEvents: postFilter != null && i < postFilter.length
+              ? postFilter[i]
+              : 0,
+        ));
+      }
+      return results;
+    } catch (e) {
+      print('Warning: could not read event counts: $e');
+      return [];
+    }
+  }
+
+  /// Read channel reference from FCS read step output.
+  Future<List<FcsChannel>> _readChannelReference(Workflow wf) async {
+    try {
+      final table = await _readStepOutput(wf, 'Read FCS');
+      if (table == null) return [];
+
+      final names = _getColumnValues<String>(table, 'name');
+      final descriptions = _getColumnValues<String>(table, 'description');
+
+      if (names == null) return [];
+
+      return List.generate(names.length, (i) {
+        final desc =
+            descriptions != null && i < descriptions.length
+                ? descriptions[i]
+                : names[i];
+        final isQc = _isQcChannel(names[i], desc);
+        return FcsChannel(name: names[i], description: desc, isQc: isQc);
+      });
+    } catch (e) {
+      print('Warning: could not read channel reference: $e');
+      return [];
+    }
+  }
+
+  bool _isQcChannel(String name, String description) {
+    final lower = name.toLowerCase();
+    return lower.startsWith('fsc') ||
+        lower.startsWith('ssc') ||
+        lower == 'time' ||
+        lower.contains('viability') ||
+        description.toLowerCase().contains('viability');
+  }
+
+  // =============================================
+  // Channels — from FCS data in project
+  // =============================================
+
+  @override
+  Future<List<FcsChannel>> getChannels() async {
+    // Channels come from the uploaded FCS data. In a real implementation,
+    // this would read the FCS headers from the uploaded file.
+    // For now, delegate to the results of the most recent run.
+    try {
+      final history = await getRunHistory();
+      if (history.isNotEmpty) {
+        final wf = await _factory.workflowService.get(history.first.id);
+        return _readChannelReference(wf);
+      }
+      return [];
+    } catch (e) {
+      print('Tercen error in getChannels: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<Map<String, dynamic>> getInputConfig(int stage) async {
+    return {'stage': stage};
+  }
+
+  @override
+  Future<int> submitInput(Map<String, dynamic> settings) async {
+    return -1;
+  }
+
+  // =============================================
+  // Phase 3: Team listing
+  // =============================================
+
+  @override
+  Future<List<String>> getTeams() async {
+    try {
+      final user = await _factory.userService.get('');
+      final teams = <String>[user.name];
+      // Find teams owned by this user
+      final ownedTeams = await _factory.teamService.findTeamByOwner(
+        keys: [user.name],
+      );
+      for (final team in ownedTeams) {
+        if (!teams.contains(team.name)) {
+          teams.add(team.name);
+        }
+      }
+      return teams;
+    } catch (e) {
+      print('Tercen error in getTeams: $e');
+      rethrow;
+    }
+  }
+
+  // =============================================
+  // Phase 3: Project creation
+  // =============================================
+
+  @override
+  Future<String> createProject(String teamName, String projectName) async {
+    try {
+      final project = Project()
+        ..name = projectName
+        ..acl.owner = teamName;
+      final created = await _factory.projectService.create(project);
+      return created.id;
+    } catch (e) {
+      print('Tercen error in createProject: $e');
+      rethrow;
+    }
+  }
+
+  // =============================================
+  // Phase 3: File upload
+  // =============================================
+
+  @override
+  Future<String> uploadFile(
+      String filename, Uint8List bytes, String projectId) async {
+    try {
+      final fileDoc = FileDocument()
+        ..name = filename
+        ..projectId = projectId;
+      final uploaded = await _factory.fileService
+          .upload(fileDoc, Stream.value(bytes));
+      return uploaded.id;
+    } catch (e) {
+      print('Tercen error in uploadFile: $e');
+      rethrow;
+    }
+  }
+
+  // =============================================
+  // Phase 3: Workflow cloning
+  // =============================================
+
+  @override
+  Future<String> cloneWorkflowTemplate(String projectId) async {
+    try {
+      final templateId = await _findTemplateWorkflowId();
+      final cloned =
+          await _factory.workflowService.copyApp(templateId, projectId);
+      return cloned.id;
+    } catch (e) {
+      print('Tercen error in cloneWorkflowTemplate: $e');
+      await _printDiagnosticReport();
+      rethrow;
+    }
+  }
+
+  /// Find the template workflow ID by name in the project.
+  Future<String> _findTemplateWorkflowId() async {
+    if (_templateWorkflowId != null) return _templateWorkflowId!;
+
+    final allDocs = await _factory.projectDocumentService
+        .findProjectObjectsByLastModifiedDate(
+      startKey: [_projectId, ''],
+      endKey: [_projectId, '\uf000'],
+      useFactory: true,
+    );
+    final workflows = allDocs
+        .whereType<Workflow>()
+        .where((wf) => wf.name == _templateWorkflowName)
+        .toList();
+
+    if (workflows.isEmpty) {
+      throw StateError(
+          'Template workflow "$_templateWorkflowName" not found in project $_projectId');
+    }
+
+    _templateWorkflowId = workflows.first.id;
+    return _templateWorkflowId!;
+  }
+
+  // =============================================
+  // Phase 3: Set workflow properties
+  // =============================================
+
+  @override
+  Future<void> setWorkflowProperties(
+    String workflowId, {
+    required List<String> selectedChannels,
+    required int maxEventsPerFile,
+    required int phenographK,
+    required int umapNNeighbors,
+    required double umapMinDist,
+    required int randomSeed,
+    required String fcsFileDocId,
+    required String annotationFileDocId,
+  }) async {
+    try {
+      final workflow = await _factory.workflowService.get(workflowId);
+
+      for (final step in workflow.steps) {
+        if (step is! DataStep) continue;
+        final props =
+            step.model.operatorSettings.operatorRef.propertyValues;
+
+        for (final pv in props) {
+          switch (pv.name) {
+            case 'k':
+              pv.value = phenographK.toString();
+            case 'n_neighbors':
+              pv.value = umapNNeighbors.toString();
+            case 'min_dist':
+              pv.value = umapMinDist.toString();
+            case 'seed':
+            case 'random_seed':
+              pv.value = randomSeed.toString();
+            case 'max_events':
+            case 'max_events_per_file':
+              pv.value = maxEventsPerFile.toString();
+            case 'channels':
+            case 'selected_channels':
+              pv.value = selectedChannels.join(',');
+            case 'fcs_file':
+            case 'input_file':
+              pv.value = fcsFileDocId;
+            case 'annotation_file':
+              pv.value = annotationFileDocId;
+          }
+        }
+      }
+
+      await _factory.workflowService.update(workflow);
+    } catch (e) {
+      print('Tercen error in setWorkflowProperties: $e');
+      rethrow;
+    }
+  }
+
+  // =============================================
+  // Phase 3: Workflow execution
+  // =============================================
+
+  @override
+  Future<void> runWorkflow(
+    String workflowId, {
+    required OnProgressCallback onProgress,
+    required OnLogCallback onLog,
+    required OnCompleteCallback onComplete,
+    required OnErrorCallback onError,
+  }) async {
+    try {
+      final workflow = await _factory.workflowService.get(workflowId);
+
+      final task = RunWorkflowTask()
+        ..projectId = _projectId
+        ..workflowId = workflow.id
+        ..workflowRev = workflow.rev;
+
+      // Run all steps, reset all steps
+      for (final step in workflow.steps) {
+        task.stepsToRun.add(step.id);
+        task.stepsToReset.add(step.id);
+      }
+
+      final created =
+          await _factory.taskService.create(task) as RunWorkflowTask;
+      _runningTaskId = created.id;
+      await _factory.taskService.runTask(created.id);
+
+      // Listen to progress events via WebSocket
+      await for (final event
+          in _factory.eventService.listenTaskChannel(created.id, true)) {
+        if (event is TaskProgressEvent) {
+          onProgress(event.message, event.actual, event.total);
+        } else if (event is TaskLogEvent) {
+          onLog(event.message);
+        } else if (event is TaskStateEvent) {
+          if (event.state is DoneState) {
+            _runningTaskId = null;
+            onComplete(workflowId);
+            break;
+          } else if (event.state is FailedState) {
+            _runningTaskId = null;
+            final failed = event.state as FailedState;
+            onError(failed.error, failed.reason);
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      _runningTaskId = null;
+      print('Tercen error in runWorkflow: $e');
+      await _printDiagnosticReport();
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> cancelRun(String taskId) async {
+    try {
+      final id = taskId.isNotEmpty ? taskId : _runningTaskId;
+      if (id != null) {
+        await _factory.taskService.cancelTask(id);
+        _runningTaskId = null;
+      }
+    } catch (e) {
+      print('Tercen error in cancelRun: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<void> deleteWorkflow(String workflowId) async {
+    try {
+      final wf = await _factory.workflowService.get(workflowId);
+      await _factory.workflowService.delete(wf.id, wf.rev);
+    } catch (e) {
+      print('Tercen error in deleteWorkflow: $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<int> getWorkflowStepCount(String workflowId) async {
+    try {
+      final wf = await _factory.workflowService.get(workflowId);
+      return wf.steps.length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // =============================================
+  // Step output reading helpers
+  // =============================================
+
+  /// Read output data from a named step in the workflow.
+  Future<Table?> _readStepOutput(Workflow wf, String stepName) async {
+    DataStep? targetStep;
+    for (final step in wf.steps) {
+      if (step is DataStep && step.name == stepName) {
+        targetStep = step;
+        break;
+      }
+    }
+    if (targetStep == null) return null;
+
+    // Only read from completed steps
+    if (targetStep.state.taskState is! DoneState) return null;
+
+    final relations = _getSimpleRelations(targetStep.computedRelation);
+    if (relations.isEmpty) return null;
+
+    final schemaIds = relations.map((r) => r.id).toList();
+    final schemas = await _factory.tableSchemaService.list(schemaIds);
+
+    // Find first schema with data
+    for (final schema in schemas) {
+      if (schema.nRows > 0) {
+        return await _factory.tableSchemaService.select(
+          schema.id,
+          schema.columns.map((c) => c.name).toList(),
+          0,
+          schema.nRows,
+        );
+      }
+    }
+    return null;
+  }
+
+  /// Extract typed column values from a Table.
+  List<T>? _getColumnValues<T>(Table table, String columnName) {
+    for (final col in table.columns) {
+      // Match by exact name or strip namespace prefix
+      final name = col.name.contains('.')
+          ? col.name.split('.').last
+          : col.name;
+      if (name == columnName) {
+        final values = col.values;
+        if (values is List) {
+          return values.cast<T>();
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Walk the relation tree and extract simple/reference relations (schema IDs).
+  List<Relation> _getSimpleRelations(Relation relation) {
+    final result = <Relation>[];
+    void walk(Relation? r) {
+      if (r == null) return;
+      if (r is SimpleRelation || r is ReferenceRelation) {
+        result.add(r);
+      } else if (r is CompositeRelation) {
+        walk(r.mainRelation);
+        for (final j in r.joinOperators) {
+          walk(j.rightRelation);
+        }
+      } else if (r is WhereRelation) {
+        walk(r.relation);
+      } else if (r is RenameRelation) {
+        walk(r.relation);
+      }
+    }
+    walk(relation);
+    return result;
+  }
+
+  // =============================================
+  // Diagnostics
+  // =============================================
+
+  Future<void> _printDiagnosticReport() async {
+    print('=== TERCEN DIAGNOSTIC REPORT (Flow E) ===');
+    print('ProjectId: $_projectId');
+
+    try {
+      final project = await _factory.projectService.get(_projectId);
+      print('Project: ${project.name} (owner: ${project.acl.owner})');
+    } catch (e) {
+      print('Project fetch ERROR: $e');
+    }
+
+    try {
+      final allDocs = await _factory.projectDocumentService
+          .findProjectObjectsByLastModifiedDate(
+        startKey: [_projectId, ''],
+        endKey: [_projectId, '\uf000'],
+        useFactory: true,
+      );
+      final workflows = allDocs.whereType<Workflow>().toList();
+      print('Workflows in project: ${workflows.length}');
+      for (final w in workflows) {
+        print('  - ${w.name} (${w.id})');
+      }
+    } catch (e) {
+      print('Workflow list ERROR: $e');
+    }
+
+    print('=== END REPORT ===');
+  }
+}

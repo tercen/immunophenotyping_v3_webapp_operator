@@ -30,6 +30,7 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 # /build/
+!build/web/
 
 # Intermediate build cache (only build/web/ is deployed)
 build/.last_build_id
