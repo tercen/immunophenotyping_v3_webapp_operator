@@ -4,10 +4,9 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_colors_dark.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
-import '../../../core/theme/app_line_weights.dart';
-import '../../../domain/models/fcs_channel.dart';
 import '../../providers/app_state_provider.dart';
 import '../../providers/theme_provider.dart';
+import '../upload_zone.dart';
 
 /// Input mode content -- switches between 5 input stages.
 ///
@@ -27,16 +26,24 @@ class InputContent extends StatelessWidget {
 
     return Container(
       color: bgColor,
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(AppSpacing.lg),
-        child: switch (provider.currentStage) {
-          0 => _Stage0ProjectSetup(isDark: isDark),
-          1 => _Stage1UploadFcs(isDark: isDark),
-          2 => _Stage2UploadAnnotation(isDark: isDark),
-          3 => _Stage3ChannelSelection(isDark: isDark),
-          4 => _Stage4AnalysisSettings(isDark: isDark),
-          _ => const SizedBox.shrink(),
-        },
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            left: AppSpacing.md + 32 + AppSpacing.sm, // align with header title (past exit button)
+            right: AppSpacing.md,
+            top: AppSpacing.lg,
+            bottom: AppSpacing.lg,
+          ),
+          child: switch (provider.currentStage) {
+            0 => _Stage0ProjectSetup(isDark: isDark),
+            1 => _Stage1UploadFcs(isDark: isDark),
+            2 => _Stage2UploadAnnotation(isDark: isDark),
+            3 => _Stage3ChannelSelection(isDark: isDark),
+            4 => _Stage4AnalysisSettings(isDark: isDark),
+            _ => const SizedBox.shrink(),
+          },
+        ),
       ),
     );
   }
@@ -54,53 +61,46 @@ class _Stage0ProjectSetup extends StatelessWidget {
     final provider = context.watch<AppStateProvider>();
     final labelColor =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-    final textSecondary =
-        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // SELECT TEAM section
         Text(
-          'Select a team and name your project.',
-          style: AppTextStyles.body.copyWith(color: textSecondary),
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        // TEAM section
-        Text(
-          'TEAM',
+          'SELECT TEAM',
           style: AppTextStyles.sectionHeader.copyWith(color: labelColor),
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
-        Text('Team',
-            style: AppTextStyles.label.copyWith(color: labelColor)),
-        const SizedBox(height: AppSpacing.xs),
-        DropdownButtonFormField<String>(
-          value: provider.selectedTeam,
-          decoration: const InputDecoration(isDense: true),
-          items: provider.availableTeams
-              .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-              .toList(),
-          onChanged: (value) {
-            if (value != null) provider.setSelectedTeam(value);
-          },
-        ),
-        const SizedBox(height: AppSpacing.lg),
-        // PROJECT section
-        Text(
-          'PROJECT',
-          style: AppTextStyles.sectionHeader.copyWith(color: labelColor),
-        ),
-        const SizedBox(height: AppSpacing.controlSpacing),
-        Text('Project name',
-            style: AppTextStyles.label.copyWith(color: labelColor)),
-        const SizedBox(height: AppSpacing.xs),
-        TextFormField(
-          initialValue: provider.projectName,
-          decoration: const InputDecoration(
-            hintText: 'Enter project name...',
-            isDense: true,
+        SizedBox(
+          width: 320,
+          child: DropdownButtonFormField<String>(
+            value: provider.selectedTeam,
+            decoration: const InputDecoration(isDense: true),
+            items: provider.availableTeams
+                .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                .toList(),
+            onChanged: (value) {
+              if (value != null) provider.setSelectedTeam(value);
+            },
           ),
-          onChanged: (value) => provider.setProjectName(value),
+        ),
+        const SizedBox(height: AppSpacing.lg),
+        // PROJECT NAME section
+        Text(
+          'PROJECT NAME',
+          style: AppTextStyles.sectionHeader.copyWith(color: labelColor),
+        ),
+        const SizedBox(height: AppSpacing.controlSpacing),
+        SizedBox(
+          width: 480,
+          child: TextFormField(
+            initialValue: provider.projectName,
+            decoration: const InputDecoration(
+              hintText: 'Enter project name...',
+              isDense: true,
+            ),
+            onChanged: (value) => provider.setProjectName(value),
+          ),
         ),
       ],
     );
@@ -116,85 +116,25 @@ class _Stage1UploadFcs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<AppStateProvider>();
+    final provider = context.read<AppStateProvider>();
     final labelColor =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-    final textPrimary =
-        isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
-    final borderColor = isDark ? AppColorsDark.border : AppColors.border;
-    final successColor = isDark ? AppColorsDark.success : AppColors.success;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // FCS DATA section
         Text(
-          'FCS DATA',
-          style: AppTextStyles.sectionHeader.copyWith(color: labelColor),
+          'FCS files must be in a .zip folder.',
+          style: AppTextStyles.bodySmall.copyWith(color: labelColor),
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
-        // Drop zone
-        if (!provider.fcsUploaded)
-          _DropZone(
-            isDark: isDark,
-            icon: Icons.cloud_upload_outlined,
-            label: 'Drag & drop FCS zip file or browse',
-            onTap: () => provider.simulateFcsUpload(),
-          )
-        else
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: isDark ? AppColorsDark.surface : AppColors.surface,
-              border: Border.all(color: successColor),
-              borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.check_circle, color: successColor, size: 20),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Text(
-                        provider.fcsFilename ?? '',
-                        style: AppTextStyles.label
-                            .copyWith(color: textPrimary),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.close, size: 16, color: labelColor),
-                      onPressed: () => provider.clearFcsUpload(),
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 24, minHeight: 24),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  '${provider.fcsFileCount} FCS files  |  '
-                  '${provider.fcsChannelCount} channels  |  '
-                  '${_formatFileSize(provider.fcsFileSize)}',
-                  style:
-                      AppTextStyles.bodySmall.copyWith(color: labelColor),
-                ),
-              ],
-            ),
-          ),
+        UploadZone(
+          isDark: isDark,
+          label: 'Drag & Drop or Click to Browse',
+          onFilesChanged: (files) => provider.updateFcsUploadFromFiles(files),
+        ),
       ],
     );
-  }
-
-  String _formatFileSize(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) {
-      return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    }
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 }
 
@@ -207,82 +147,24 @@ class _Stage2UploadAnnotation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.watch<AppStateProvider>();
+    final provider = context.read<AppStateProvider>();
     final labelColor =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-    final textPrimary =
-        isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
-    final successColor = isDark ? AppColorsDark.success : AppColors.success;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ANNOTATION section
         Text(
-          'ANNOTATION',
-          style: AppTextStyles.sectionHeader.copyWith(color: labelColor),
+          'CSV file required.',
+          style: AppTextStyles.bodySmall.copyWith(color: labelColor),
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
-        // Drop zone
-        if (!provider.annotationUploaded)
-          _DropZone(
-            isDark: isDark,
-            icon: Icons.cloud_upload_outlined,
-            label: 'Drag & drop annotation CSV or browse',
-            onTap: () => provider.simulateAnnotationUpload(),
-          )
-        else
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(AppSpacing.md),
-            decoration: BoxDecoration(
-              color: isDark ? AppColorsDark.surface : AppColors.surface,
-              border: Border.all(color: successColor),
-              borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.check_circle, color: successColor, size: 20),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: Text(
-                        provider.annotationFilename ?? '',
-                        style: AppTextStyles.label
-                            .copyWith(color: textPrimary),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.close, size: 16, color: labelColor),
-                      onPressed: () => provider.clearAnnotationUpload(),
-                      padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 24, minHeight: 24),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.xs),
-                Text(
-                  '${provider.annotationSampleCount} samples  |  '
-                  '${provider.annotationConditions.length} conditions  |  '
-                  'Cross-check: ${provider.annotationCrossCheckPassed ? "passed" : "failed"}',
-                  style:
-                      AppTextStyles.bodySmall.copyWith(color: labelColor),
-                ),
-                if (provider.annotationConditions.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    'Conditions: ${provider.annotationConditions.join(", ")}',
-                    style:
-                        AppTextStyles.bodySmall.copyWith(color: labelColor),
-                  ),
-                ],
-              ],
-            ),
-          ),
+        UploadZone(
+          isDark: isDark,
+          label: 'Drag & Drop or Click to Browse',
+          onFilesChanged: (files) =>
+              provider.updateAnnotationUploadFromFiles(files),
+        ),
       ],
     );
   }
@@ -387,35 +269,49 @@ class _Stage3ChannelSelection extends StatelessWidget {
           style: AppTextStyles.sectionHeader.copyWith(color: labelColor),
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
-        Text('Max events per file',
+        Text('Events per file',
             style: AppTextStyles.label.copyWith(color: labelColor)),
         const SizedBox(height: AppSpacing.xs),
-        Row(
-          children: [
-            Text('400',
-                style: AppTextStyles.bodySmall.copyWith(color: labelColor)),
-            Expanded(
-              child: Slider(
-                value: provider.maxEventsPerFile.toDouble(),
-                min: 400,
-                max: provider.maxPossibleEvents.toDouble(),
-                divisions: ((provider.maxPossibleEvents - 400) / 100)
-                    .round()
-                    .clamp(1, 100),
-                label: '${provider.maxEventsPerFile}',
-                onChanged: (value) =>
-                    provider.setMaxEventsPerFile(value.round()),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 36,
+                child: Text('${provider.minEventsPerFile}',
+                    style: AppTextStyles.bodySmall.copyWith(color: labelColor),
+                    textAlign: TextAlign.center),
               ),
-            ),
-            SizedBox(
-              width: 60,
-              child: Text(
-                '${provider.maxEventsPerFile}',
-                style: AppTextStyles.label.copyWith(color: textPrimary),
-                textAlign: TextAlign.end,
+              Expanded(
+                child: RangeSlider(
+                  values: RangeValues(
+                    provider.minEventsPerFile.toDouble(),
+                    provider.maxEventsPerFile.toDouble(),
+                  ),
+                  min: 1,
+                  max: provider.maxPossibleEvents.toDouble(),
+                  divisions: (provider.maxPossibleEvents - 1)
+                      .clamp(1, 1000),
+                  labels: RangeLabels(
+                    '${provider.minEventsPerFile}',
+                    '${provider.maxEventsPerFile}',
+                  ),
+                  onChanged: (values) => provider.setEventsPerFileRange(
+                    values.start.round(),
+                    values.end.round(),
+                  ),
+                ),
               ),
-            ),
-          ],
+              SizedBox(
+                width: 36,
+                child: Text(
+                  '${provider.maxEventsPerFile}',
+                  style: AppTextStyles.bodySmall.copyWith(color: labelColor),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -444,18 +340,18 @@ class _Stage4AnalysisSettings extends StatelessWidget {
           style: AppTextStyles.sectionHeader.copyWith(color: labelColor),
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
-        Text('Run name',
-            style: AppTextStyles.label.copyWith(color: labelColor)),
-        const SizedBox(height: AppSpacing.xs),
-        TextFormField(
-          initialValue: provider.runName.isNotEmpty
-              ? provider.runName
-              : provider.defaultRunName,
-          decoration: const InputDecoration(
-            hintText: 'Enter run name...',
-            isDense: true,
+        SizedBox(
+          width: 480,
+          child: TextFormField(
+            initialValue: provider.runName.isNotEmpty
+                ? provider.runName
+                : provider.defaultRunName,
+            decoration: const InputDecoration(
+              hintText: 'Enter run name...',
+              isDense: true,
+            ),
+            onChanged: (value) => provider.setRunName(value),
           ),
-          onChanged: (value) => provider.setRunName(value),
         ),
         const SizedBox(height: AppSpacing.lg),
         // CLUSTERING section
@@ -546,61 +442,3 @@ class _Stage4AnalysisSettings extends StatelessWidget {
   }
 }
 
-// =============================================================================
-// Shared: Drop Zone widget (simulated file upload)
-// =============================================================================
-class _DropZone extends StatelessWidget {
-  final bool isDark;
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  const _DropZone({
-    required this.isDark,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = isDark ? AppColorsDark.border : AppColors.border;
-    final labelColor =
-        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-    final primaryColor =
-        isDark ? AppColorsDark.primary : AppColors.primary;
-
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(
-          vertical: AppSpacing.xl,
-          horizontal: AppSpacing.lg,
-        ),
-        decoration: BoxDecoration(
-          border: Border.all(color: borderColor, width: AppLineWeights.lineStandard),
-          borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-          color: isDark ? AppColorsDark.surface : AppColors.surface,
-        ),
-        child: Column(
-          children: [
-            Icon(icon, size: 40, color: primaryColor),
-            const SizedBox(height: AppSpacing.sm),
-            Text(
-              label,
-              style: AppTextStyles.body.copyWith(color: labelColor),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: AppSpacing.xs),
-            Text(
-              'Click to simulate upload',
-              style: AppTextStyles.bodySmall.copyWith(color: primaryColor),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

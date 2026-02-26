@@ -11,9 +11,7 @@ import 'presentation/screens/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Show errors visually instead of blank screen
   ErrorWidget.builder = (FlutterErrorDetails details) {
-    debugPrint('ErrorWidget: ${details.exception}');
     return Material(
       child: Center(
         child: Padding(
@@ -27,22 +25,12 @@ void main() async {
     );
   };
 
-  debugPrint('[main] Starting app...');
-
   try {
-    debugPrint('[main] Setting up service locator...');
     setupServiceLocator(useMocks: true);
-    debugPrint('[main] Service locator ready');
-
-    debugPrint('[main] Getting SharedPreferences...');
     final prefs = await SharedPreferences.getInstance();
-    debugPrint('[main] SharedPreferences ready');
-
-    debugPrint('[main] Calling runApp...');
     runApp(ImmunophenotypingApp(prefs: prefs));
-    debugPrint('[main] runApp called');
   } catch (e, stack) {
-    debugPrint('[main] STARTUP ERROR: $e\n$stack');
+    debugPrint('STARTUP ERROR: $e\n$stack');
     runApp(MaterialApp(
       home: Scaffold(
         body: Center(
@@ -66,21 +54,13 @@ class ImmunophenotypingApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    debugPrint('[ImmunophenotypingApp] build called');
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) {
-          debugPrint('[ImmunophenotypingApp] Creating ThemeProvider');
-          return ThemeProvider(prefs);
-        }),
-        ChangeNotifierProvider(create: (_) {
-          debugPrint('[ImmunophenotypingApp] Creating AppStateProvider');
-          return AppStateProvider();
-        }),
+        ChangeNotifierProvider(create: (_) => ThemeProvider(prefs)),
+        ChangeNotifierProvider(create: (_) => AppStateProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
-          debugPrint('[ImmunophenotypingApp] Consumer rebuild');
           return MaterialApp(
             title: 'Flow Immunophenotyping - PhenoGraph',
             theme: AppTheme.light,

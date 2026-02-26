@@ -10,28 +10,34 @@ import '../providers/theme_provider.dart';
 /// Header Panel — 48px fixed strip at top of the right column.
 ///
 /// Two zones: left-aligned context label, right-aligned action buttons.
-/// Content changes by mode (Input / Display / Running).
+/// Button bar changes dynamically based on app state:
 ///
-/// DO NOT MODIFY this widget directly. Apps configure it via AppStateProvider:
-/// - setHeaderConfig(heading, actionLabel) for Input mode
-/// - selectHistoryEntry() for Display mode heading
-/// - startRun() / stopRun() for Running state dimming
+///   State                  | Pos 1   | Pos 2  | Pos 3 | Pos 4
+///   -----------------------|---------|--------|-------|---------------
+///   Create Project         |         |        |       | Create Project
+///   Upload FCS Files       |         |        |       | Continue
+///   Upload Sample Ann.     |         |        | Reset | Continue
+///   Select Channels        |         |        | Reset | Continue
+///   Analysis Settings      |         |        | Reset | Run
+///   Running                |         |        |       | Stop
+///   Display                | Delete  | Export | Reset | Re-Run
 class HeaderPanel extends StatelessWidget {
-  /// Callback when the primary action button is pressed in Input mode.
+  static const double _primaryButtonWidth = 140.0;
+
+  final VoidCallback? onExit;
   final VoidCallback? onPrimaryAction;
-
-  /// Callback when Re-Run is pressed in Display mode.
+  final VoidCallback? onStop;
+  final VoidCallback? onReset;
   final VoidCallback? onReRun;
-
-  /// Callback when Export is pressed in Display mode.
   final VoidCallback? onExport;
-
-  /// Callback when Delete is pressed in Display mode.
   final VoidCallback? onDelete;
 
   const HeaderPanel({
     super.key,
+    this.onExit,
     this.onPrimaryAction,
+    this.onStop,
+    this.onReset,
     this.onReRun,
     this.onExport,
     this.onDelete,
@@ -43,7 +49,8 @@ class HeaderPanel extends StatelessWidget {
     final isDark = context.watch<ThemeProvider>().isDarkMode;
     final bgColor = isDark ? AppColorsDark.surface : AppColors.surface;
     final borderColor = isDark ? AppColorsDark.border : AppColors.border;
-    final textPrimary = isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
+    final textPrimary =
+        isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
 
     return Container(
       height: AppSpacing.topBarHeight,
@@ -54,7 +61,16 @@ class HeaderPanel extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
       child: Row(
         children: [
-          // Left zone: context label
+          // Exit button — always visible, far left
+          IconButton(
+            onPressed: onExit,
+            icon: Icon(Icons.close, size: 18, color: isDark ? AppColorsDark.textSecondary : AppColors.textSecondary),
+            tooltip: 'Exit',
+            splashRadius: 16,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+          ),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Text(
               provider.headerHeading,
@@ -62,47 +78,108 @@ class HeaderPanel extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          // Right zone: action buttons
-          ..._buildActions(context, provider, isDark),
+          ..._buildActions(provider, isDark),
         ],
       ),
     );
   }
 
-  List<Widget> _buildActions(
-    BuildContext context,
-    AppStateProvider provider,
-    bool isDark,
-  ) {
-    if (provider.contentMode == ContentMode.input) {
-      return [
-        FilledButton(
-          onPressed: onPrimaryAction,
-          child: Text(provider.headerActionLabel),
+  List<Widget> _buildActions(AppStateProvider provider, bool isDark) {
+    final outlineColor =
+        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
+    final errorColor = isDark ? AppColorsDark.error : AppColors.error;
+    final buttons = <Widget>[];
+
+    if (provider.isRunning) {
+      // Running: [_, _, _, Stop]
+      buttons.add(SizedBox(
+        width: _primaryButtonWidth,
+        child: FilledButton.icon(
+          onPressed: onStop,
+          style: FilledButton.styleFrom(backgroundColor: errorColor),
+          icon: const Icon(Icons.stop, size: 16),
+          label: const Text('Stop'),
         ),
-      ];
+      ));
+      return buttons;
     }
 
-    // Display mode
-    final outlineColor = isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-    return [
-      OutlinedButton.icon(
-        onPressed: onReRun,
-        icon: Icon(Icons.replay, size: 16, color: outlineColor),
-        label: Text('Re-Run', style: TextStyle(color: outlineColor)),
-      ),
-      const SizedBox(width: AppSpacing.sm),
-      OutlinedButton.icon(
-        onPressed: onExport,
-        icon: Icon(Icons.download, size: 16, color: outlineColor),
-        label: Text('Export', style: TextStyle(color: outlineColor)),
-      ),
-      const SizedBox(width: AppSpacing.sm),
-      OutlinedButton.icon(
+    if (provider.contentMode == ContentMode.display) {
+      // Display: [Delete, Export, Reset, Re-Run]
+      buttons.add(_outlinedButton(
+        icon: Icons.delete_outline,
+        label: 'Delete',
+        color: errorColor,
         onPressed: onDelete,
-        icon: Icon(Icons.delete_outline, size: 16, color: isDark ? AppColorsDark.error : AppColors.error),
-        label: Text('Delete', style: TextStyle(color: isDark ? AppColorsDark.error : AppColors.error)),
-      ),
-    ];
+      ));
+      buttons.add(const SizedBox(width: AppSpacing.sm));
+      buttons.add(_outlinedButton(
+        icon: Icons.download,
+        label: 'Export',
+        color: outlineColor,
+        onPressed: onExport,
+      ));
+      buttons.add(const SizedBox(width: AppSpacing.sm));
+      buttons.add(_outlinedButton(
+        icon: Icons.refresh,
+        label: 'Reset',
+        color: outlineColor,
+        onPressed: onReset,
+      ));
+      buttons.add(const SizedBox(width: AppSpacing.sm));
+      buttons.add(SizedBox(
+        width: _primaryButtonWidth,
+        child: FilledButton(
+          onPressed: onReRun,
+          child: const Text('Re-Run'),
+        ),
+      ));
+      return buttons;
+    }
+
+    // Input mode: buttons depend on stage
+    final stage = provider.currentStage;
+
+    // Pos 3: Reset (visible from stage 2+)
+    if (stage >= 2) {
+      buttons.add(_outlinedButton(
+        icon: Icons.refresh,
+        label: 'Reset',
+        color: outlineColor,
+        onPressed: onReset,
+      ));
+      buttons.add(const SizedBox(width: AppSpacing.sm));
+    }
+
+    // Pos 4: primary action
+    final isRun = provider.headerActionLabel == 'Run';
+    buttons.add(SizedBox(
+      width: _primaryButtonWidth,
+      child: isRun
+          ? FilledButton.icon(
+              onPressed: onPrimaryAction,
+              icon: const Icon(Icons.play_arrow, size: 16),
+              label: const Text('Run'),
+            )
+          : FilledButton(
+              onPressed: onPrimaryAction,
+              child: Text(provider.headerActionLabel),
+            ),
+    ));
+
+    return buttons;
+  }
+
+  Widget _outlinedButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback? onPressed,
+  }) {
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16, color: color),
+      label: Text(label, style: TextStyle(color: color)),
+    );
   }
 }

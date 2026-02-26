@@ -21,8 +21,6 @@ class HistorySection extends StatelessWidget {
     final isDark = context.watch<ThemeProvider>().isDarkMode;
     final textPrimary =
         isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
-    final textSecondary =
-        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
     final selectedBg =
         isDark ? AppColorsDark.primarySurface : AppColors.primarySurface;
 
@@ -31,7 +29,8 @@ class HistorySection extends StatelessWidget {
     if (history.isEmpty) {
       return Text(
         'No runs yet',
-        style: AppTextStyles.bodySmall.copyWith(color: textSecondary),
+        style: AppTextStyles.bodySmall.copyWith(
+            color: isDark ? AppColorsDark.textSecondary : AppColors.textSecondary),
       );
     }
 
@@ -39,54 +38,48 @@ class HistorySection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: history.map((run) {
         final isSelected = run.id == provider.selectedRunId;
-        return InkWell(
-          onTap: () => provider.selectHistoryEntry(run.id),
-          borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.sm,
-              vertical: AppSpacing.xs,
-            ),
-            decoration: BoxDecoration(
-              color: isSelected ? selectedBg : Colors.transparent,
-              borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
-            ),
-            child: Row(
-              children: [
-                // Traffic-light status dot
-                Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _statusColor(run.status, isDark),
-                    shape: BoxShape.circle,
+        return Tooltip(
+          message: _formatTimestamp(run.timestamp),
+          waitDuration: const Duration(milliseconds: 400),
+          child: InkWell(
+            onTap: () => provider.selectHistoryEntry(run.id),
+            borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.sm,
+                vertical: AppSpacing.xs,
+              ),
+              decoration: BoxDecoration(
+                color: isSelected ? selectedBg : Colors.transparent,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+              ),
+              child: Row(
+                children: [
+                  // Traffic-light status dot
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: _statusColor(run.status, isDark),
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                // Run name and timestamp
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        run.name,
-                        style: AppTextStyles.label.copyWith(
-                          color: textPrimary,
-                          fontWeight:
-                              isSelected ? FontWeight.w600 : FontWeight.w500,
-                        ),
-                        overflow: TextOverflow.ellipsis,
+                  const SizedBox(width: AppSpacing.sm),
+                  // Run name only — datetime shown on hover
+                  Expanded(
+                    child: Text(
+                      run.name,
+                      style: AppTextStyles.label.copyWith(
+                        color: textPrimary,
+                        fontWeight:
+                            isSelected ? FontWeight.w600 : FontWeight.w500,
                       ),
-                      Text(
-                        _formatTimestamp(run.timestamp),
-                        style: AppTextStyles.labelSmall
-                            .copyWith(color: textSecondary),
-                      ),
-                    ],
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );

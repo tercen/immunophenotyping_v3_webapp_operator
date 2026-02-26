@@ -39,7 +39,7 @@ class StatusSection extends StatelessWidget {
     if (provider.isRunning) {
       stateLabel = 'Running';
       stateColor = isDark ? AppColorsDark.primary : AppColors.primary;
-      statusMessage = '12 of 31 steps complete';
+      statusMessage = '${provider.completedSteps} of ${AppStateProvider.totalSteps} steps complete';
     } else if (provider.contentMode == ContentMode.display) {
       final run = provider.selectedRun;
       final result = provider.currentResult;
@@ -56,17 +56,37 @@ class StatusSection extends StatelessWidget {
       } else {
         stateLabel = 'Complete';
         stateColor = successColor;
-        statusMessage = 'Analysis complete';
+        statusMessage = '';
       }
     } else {
-      stateLabel = 'Idle';
+      stateLabel = 'Waiting';
       stateColor = textSecondary;
-      statusMessage = 'Waiting for input';
+      statusMessage = '';
     }
+
+    final labelColor =
+        isDark ? AppColorsDark.textMuted : AppColors.textMuted;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Project name
+        if (provider.projectName.isNotEmpty)
+          Text(
+            provider.projectName,
+            style: AppTextStyles.label.copyWith(color: textPrimary, fontWeight: FontWeight.w700),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        // Team
+        if (provider.selectedTeam.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            provider.selectedTeam,
+            style: AppTextStyles.bodySmall.copyWith(color: labelColor),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+        ],
         // State indicator dot + label
         Row(
           children: [
@@ -91,7 +111,9 @@ class StatusSection extends StatelessWidget {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const LinearProgressIndicator(),
+              LinearProgressIndicator(
+                value: provider.completedSteps / AppStateProvider.totalSteps,
+              ),
               const SizedBox(height: AppSpacing.xs),
               Text(
                 statusMessage,
@@ -100,14 +122,14 @@ class StatusSection extends StatelessWidget {
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
-                'Running: UMAP Embedding',
+                provider.currentRunningStep,
                 style: AppTextStyles.bodySmall.copyWith(
                   color: isDark ? AppColorsDark.primary : AppColors.primary,
                 ),
               ),
             ],
           )
-        else
+        else if (statusMessage.isNotEmpty)
           Text(
             statusMessage,
             style: AppTextStyles.bodySmall.copyWith(color: textSecondary),

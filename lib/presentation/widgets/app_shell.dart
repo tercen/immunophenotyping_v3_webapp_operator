@@ -5,7 +5,7 @@ import 'header_panel.dart';
 import 'running_overlay.dart';
 import 'left_panel/left_panel.dart';
 
-/// Type 3 App frame: Row → [LeftPanel, Expanded(Column → [HeaderPanel, Content])]
+/// Type 3 App frame: Row -> [LeftPanel, Expanded(Column -> [HeaderPanel, Content])]
 ///
 /// The HeaderPanel and Content are wrapped in a RunningOverlay that blocks
 /// interaction and dims the content when the app is in Running state.
@@ -16,8 +16,11 @@ class AppShell extends StatelessWidget {
   final List<PanelSection> sections;
   final Widget content;
 
-  /// Header Panel callbacks — wired from home_screen.dart
+  /// Header Panel callbacks
+  final VoidCallback? onExit;
   final VoidCallback? onPrimaryAction;
+  final VoidCallback? onStop;
+  final VoidCallback? onReset;
   final VoidCallback? onReRun;
   final VoidCallback? onExport;
   final VoidCallback? onDelete;
@@ -28,7 +31,10 @@ class AppShell extends StatelessWidget {
     required this.appIcon,
     required this.sections,
     required this.content,
+    this.onExit,
     this.onPrimaryAction,
+    this.onStop,
+    this.onReset,
     this.onReRun,
     this.onExport,
     this.onDelete,
@@ -41,27 +47,32 @@ class AppShell extends StatelessWidget {
     return Scaffold(
       body: Row(
         children: [
-          // Status Panel — always visible and interactive, even during Running
           LeftPanel(
             appTitle: appTitle,
             appIcon: appIcon,
             sections: sections,
           ),
-          // Right column: Header + Content, wrapped in running overlay
           Expanded(
-            child: RunningOverlay(
-              isRunning: isRunning,
-              child: Column(
-                children: [
-                  HeaderPanel(
-                    onPrimaryAction: onPrimaryAction,
-                    onReRun: onReRun,
-                    onExport: onExport,
-                    onDelete: onDelete,
+            child: Column(
+              children: [
+                // Header stays interactive during running
+                HeaderPanel(
+                  onExit: onExit,
+                  onPrimaryAction: onPrimaryAction,
+                  onStop: onStop,
+                  onReset: onReset,
+                  onReRun: onReRun,
+                  onExport: onExport,
+                  onDelete: onDelete,
+                ),
+                // Only content gets the running overlay
+                Expanded(
+                  child: RunningOverlay(
+                    isRunning: isRunning,
+                    child: content,
                   ),
-                  Expanded(child: content),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ],

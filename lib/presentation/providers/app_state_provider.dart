@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../di/service_locator.dart';
 import '../../domain/models/fcs_channel.dart';
 import '../../domain/models/run_result.dart';
+import '../../domain/models/upload_file.dart';
 import '../../domain/services/data_service.dart';
 
 /// App states -- two hard states.
@@ -196,6 +198,45 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Bridge: update FCS upload state from UploadZone file list.
+  void updateFcsUploadFromFiles(List<UploadFile> files) {
+    final successFiles =
+        files.where((f) => f.status == UploadFileStatus.success).toList();
+
+    if (successFiles.isEmpty) {
+      if (_fcsUploaded) clearFcsUpload();
+      return;
+    }
+
+    _fcsFilename = successFiles.length == 1
+        ? successFiles.first.filename
+        : '${successFiles.length} files';
+    _fcsFileSize = successFiles.fold(0, (sum, f) => sum + f.fileSize);
+    _fcsFileCount = 4; // Mock: simulate 4 FCS files inside a zip
+    _fcsChannelCount = 38;
+    _fcsTotalEvents = 4082;
+    _fcsUploaded = true;
+    notifyListeners();
+  }
+
+  /// Bridge: update annotation upload state from UploadZone file list.
+  void updateAnnotationUploadFromFiles(List<UploadFile> files) {
+    final successFiles =
+        files.where((f) => f.status == UploadFileStatus.success).toList();
+
+    if (successFiles.isEmpty) {
+      if (_annotationUploaded) clearAnnotationUpload();
+      return;
+    }
+
+    _annotationFilename = successFiles.first.filename;
+    _annotationSampleCount = 4;
+    _annotationConditions = ['Donor1', 'Donor2', 'Donor3', 'Donor4'];
+    _annotationCrossCheckPassed = true;
+    _annotationUploaded = true;
+    notifyListeners();
+  }
+
   // =============================================
   // Stage 3: Channel Selection & Downsampling
   // =============================================
@@ -227,10 +268,23 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  int _minEventsPerFile = 400;
+  int get minEventsPerFile => _minEventsPerFile;
+  void setMinEventsPerFile(int value) {
+    _minEventsPerFile = value;
+    notifyListeners();
+  }
+
   int _maxEventsPerFile = 1000;
   int get maxEventsPerFile => _maxEventsPerFile;
   void setMaxEventsPerFile(int value) {
     _maxEventsPerFile = value;
+    notifyListeners();
+  }
+
+  void setEventsPerFileRange(int min, int max) {
+    _minEventsPerFile = min;
+    _maxEventsPerFile = max;
     notifyListeners();
   }
 
@@ -304,7 +358,7 @@ class AppStateProvider extends ChangeNotifier {
           '$selectedChannelCount of ${_allChannels.length} selected';
     }
     if (_currentStage >= 3) {
-      summary['Downsampling'] = '$_maxEventsPerFile events/file';
+      summary['Downsampling'] = '$_minEventsPerFile–$_maxEventsPerFile events/file';
     }
     if (_currentStage >= 4 || _contentMode == ContentMode.display) {
       summary['PhenoGraph k'] = '$_phenographK';
@@ -363,6 +417,51 @@ class AppStateProvider extends ChangeNotifier {
   RunResult? get currentResult => _currentResult;
 
   // =============================================
+  // Running simulation (mock mode)
+  // =============================================
+  Timer? _runTimer;
+  int _completedSteps = 0;
+  int get completedSteps => _completedSteps;
+  static const int totalSteps = 31;
+  String _currentRunningStep = '';
+  String get currentRunningStep => _currentRunningStep;
+  String? _pendingRunId;
+
+  static const _mockStepNames = [
+    'Read FCS Files',
+    'Parse Channel Metadata',
+    'Validate Input Data',
+    'Downsample Events',
+    'Logicle Transform',
+    'Quality Control Filtering',
+    'Build Nearest-Neighbor Graph',
+    'PhenoGraph Clustering',
+    'Assign Cluster Labels',
+    'Compute UMAP Embedding',
+    'Generate UMAP Plot',
+    'Cluster Color Assignment',
+    'Enrichment Score Calculation',
+    'Enrichment Heatmap',
+    'Top Marker Identification',
+    'Cluster Marker Table',
+    'UMAP by Marker Grid',
+    'Cell Proportion Counts',
+    'Proportion by Sample',
+    'Proportion by Condition',
+    'UMAP by Condition',
+    'Statistical Comparison',
+    'Event Count Summary',
+    'Marker Histogram Generation',
+    'Channel Reference Table',
+    'Compile PDF Report',
+    'Generate PowerPoint',
+    'Export Enriched FCS',
+    'Finalize Results',
+    'Write Output Tables',
+    'Cleanup Temporary Data',
+  ];
+
+  // =============================================
   // Input completion per stage
   // =============================================
   bool get isStageComplete {
@@ -410,15 +509,44 @@ class AppStateProvider extends ChangeNotifier {
     }
   }
 
-  /// Start a run. In mock mode, transitions immediately to Display.
+  /// Start a run. Simulates running state with a timer, then transitions
+  /// to Display mode when all steps complete.
   void startRun() {
     final runId = 'run_${DateTime.now().millisecondsSinceEpoch}';
     final name = _runName.isNotEmpty ? _runName : defaultRunName;
+    _pendingRunId = runId;
+
+    // Enter running state
+    _appState = AppState.running;
+    _completedSteps = 0;
+    _currentRunningStep = _mockStepNames[0];
+    _headerHeading = name;
+    notifyListeners();
+
+    // Simulate step progress with a periodic timer
+    _runTimer?.cancel();
+    _runTimer = Timer.periodic(const Duration(milliseconds: 350), (timer) {
+      _completedSteps++;
+      if (_completedSteps >= totalSteps) {
+        // All steps done — finalize the run
+        timer.cancel();
+        _runTimer = null;
+        _currentRunningStep = '';
+        _finishRun(runId, name, 'complete');
+      } else {
+        _currentRunningStep = _mockStepNames[_completedSteps];
+        notifyListeners();
+      }
+    });
+  }
+
+  /// Finalize a run (complete or stopped) and transition to Display mode.
+  void _finishRun(String runId, String name, String status) {
     final entry = RunEntry(
       id: runId,
       name: name,
       timestamp: DateTime.now(),
-      status: 'complete',
+      status: status,
       settings: {
         'fcsFilename': _fcsFilename ?? '',
         'fcsFileCount': _fcsFileCount,
@@ -440,8 +568,8 @@ class AppStateProvider extends ChangeNotifier {
     _contentMode = ContentMode.display;
     _headerHeading = name;
     _appState = AppState.waiting;
+    _pendingRunId = null;
 
-    // Load results asynchronously
     _loadResults(runId);
     notifyListeners();
   }
@@ -460,12 +588,30 @@ class AppStateProvider extends ChangeNotifier {
     }
   }
 
-  /// Stop the current run.
+  /// Stop the current run. Cancels timer, saves partial run as 'stopped',
+  /// then returns to Input Stage 3.
   void stopRun() {
+    _runTimer?.cancel();
+    _runTimer = null;
+
+    // If a run was in progress, save it as stopped
+    if (_pendingRunId != null) {
+      final name = _runName.isNotEmpty ? _runName : defaultRunName;
+      _finishRun(_pendingRunId!, name, 'stopped');
+    }
+
+    // Return to Input Stage 3 per spec
     _appState = AppState.waiting;
-    // Return to Stage 3 per spec
     _contentMode = ContentMode.input;
+    _currentRunningStep = '';
+    _completedSteps = 0;
     navigateToStage(3);
+  }
+
+  @override
+  void dispose() {
+    _runTimer?.cancel();
+    super.dispose();
   }
 
   /// Reset the app to initial state (Stage 1, clear settings to defaults).
@@ -493,6 +639,7 @@ class AppStateProvider extends ChangeNotifier {
     }
 
     // Reset analysis parameters to defaults
+    _minEventsPerFile = 400;
     _maxEventsPerFile = 1000;
     _phenographK = 30;
     _umapNNeighbors = 15;

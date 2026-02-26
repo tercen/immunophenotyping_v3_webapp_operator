@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../providers/app_state_provider.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/left_panel/left_panel.dart';
-import '../widgets/left_panel/actions_section.dart';
 import '../widgets/left_panel/status_section.dart';
 import '../widgets/left_panel/current_run_section.dart';
 import '../widgets/left_panel/history_section.dart';
@@ -12,9 +11,6 @@ import '../widgets/content_panel/content_panel.dart';
 
 /// Home screen: assembles the Type 3 three-panel layout for
 /// Flow Immunophenotyping - PhenoGraph.
-///
-/// The Status Panel sections (left) and Content Panel (right) are app-specific.
-/// Header Panel callbacks are wired here to connect provider actions.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -26,7 +22,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // Load data on startup (pre-populates run history in mock)
     Future.microtask(() {
       context.read<AppStateProvider>().loadData();
     });
@@ -40,12 +35,6 @@ class _HomeScreenState extends State<HomeScreen> {
       appTitle: 'Flow Immunophenotyping',
       appIcon: Icons.biotech,
       sections: const [
-        // Status Panel sections -- 5 sections per spec Section 4.2
-        PanelSection(
-          icon: Icons.play_circle_outline,
-          label: 'ACTIONS',
-          content: ActionsSection(),
-        ),
         PanelSection(
           icon: Icons.monitor_heart,
           label: 'STATUS',
@@ -68,32 +57,63 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ],
       content: const ContentPanel(),
-      // Header Panel callbacks
-      onPrimaryAction: () {
-        // Input mode: advance to next stage, or start run at stage 4.
-        // advanceStage() handles the logic: stages 0-3 -> next stage,
-        // stage 4 -> startRun() which transitions to Display mode.
-        provider.advanceStage();
-      },
+      onExit: () => _handleExit(context, provider),
+      onPrimaryAction: () => provider.advanceStage(),
+      onStop: () => provider.stopRun(),
+      onReset: () => provider.resetApp(),
       onReRun: () {
         final runId = provider.selectedRunId;
-        if (runId != null) {
-          provider.initiateReRun(runId);
-        }
+        if (runId != null) provider.initiateReRun(runId);
       },
       onExport: () {
-        // Export is a no-op in mock mode per spec
+        // no-op in mock mode
       },
       onDelete: () {
         final runId = provider.selectedRunId;
-        if (runId != null) {
-          _confirmDelete(context, provider, runId);
-        }
+        if (runId != null) _confirmDelete(context, provider, runId);
       },
     );
   }
 
-  void _confirmDelete(BuildContext context, AppStateProvider provider, String runId) {
+  void _handleExit(BuildContext context, AppStateProvider provider) {
+    // Before project creation (stage 0), exit immediately
+    if (provider.currentStage == 0) {
+      _doExit();
+      return;
+    }
+    // Otherwise confirm
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Exit?'),
+        content: const Text(
+          'Are you sure you want to exit? You will return to the Tercen project screen.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _doExit();
+            },
+            child: const Text('Exit'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _doExit() {
+    // In mock mode, just print. In real Tercen mode this would navigate
+    // back to the project screen or close the webapp.
+    debugPrint('EXIT: Would navigate to Tercen project screen');
+  }
+
+  void _confirmDelete(
+      BuildContext context, AppStateProvider provider, String runId) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(

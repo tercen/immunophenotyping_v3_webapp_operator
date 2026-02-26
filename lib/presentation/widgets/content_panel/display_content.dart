@@ -52,8 +52,12 @@ class DisplayContent extends StatelessWidget {
       color: bgColor,
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(AppSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 960),
+            child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Error banner for error runs
             if (run.status == 'error' && result?.errorMessage != null)
@@ -206,6 +210,8 @@ class DisplayContent extends StatelessWidget {
             ],
             const SizedBox(height: AppSpacing.xxl),
           ],
+        ),
+        ),
         ),
       ),
     );
