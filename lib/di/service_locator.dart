@@ -30,7 +30,7 @@ void setupServiceLocator({
   } else {
     serviceLocator.registerSingleton<ServiceFactory>(factory!);
     serviceLocator.registerLazySingleton<DataService>(
-      () => TercenWorkflowService(factory, projectId!),
+      () => TercenWorkflowService(factory, projectId ?? ''),
     );
   }
 }

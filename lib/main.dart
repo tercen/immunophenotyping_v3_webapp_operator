@@ -34,11 +34,9 @@ void main() async {
 
   if (!useMocks) {
     try {
+      // projectId is optional — Stage 0 creates the project.
       projectId = Uri.base.queryParameters['projectId'];
-      if (projectId == null || projectId.isEmpty) {
-        runApp(_buildErrorApp('Missing projectId parameter'));
-        return;
-      }
+      if (projectId != null && projectId.isEmpty) projectId = null;
       factory = await createServiceFactoryForWebApp();
     } catch (e) {
       print('Tercen init failed: $e');

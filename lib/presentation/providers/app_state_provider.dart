@@ -502,6 +502,11 @@ class AppStateProvider extends ChangeNotifier {
 
   /// Advance to the next stage, or start the run if at stage 4.
   void advanceStage() {
+    if (_currentStage == 0) {
+      // Stage 0 → 1: create the project first
+      _createProjectAndAdvance();
+      return;
+    }
     if (_currentStage < 4) {
       navigateToStage(_currentStage + 1);
       // Auto-generate run name default when entering stage 4
@@ -511,6 +516,31 @@ class AppStateProvider extends ChangeNotifier {
     } else {
       startRun();
     }
+  }
+
+  /// Create a Tercen project, then advance to Stage 1.
+  Future<void> _createProjectAndAdvance() async {
+    _isLoading = true;
+    notifyListeners();
+    try {
+      final newProjectId =
+          await _dataService.createProject(_selectedTeam, _projectName);
+      // Update the registered projectId for subsequent operations
+      if (serviceLocator.isRegistered<String>(instanceName: 'projectId')) {
+        serviceLocator.unregister<String>(instanceName: 'projectId');
+      }
+      serviceLocator.registerSingleton<String>(
+        newProjectId,
+        instanceName: 'projectId',
+      );
+    } catch (e) {
+      _error = 'Failed to create project: $e';
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
+    _isLoading = false;
+    navigateToStage(1);
   }
 
   /// Start a run: clone template, upload files, set properties, execute workflow.

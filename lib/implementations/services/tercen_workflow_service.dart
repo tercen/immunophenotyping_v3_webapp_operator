@@ -17,7 +17,7 @@ const _templateWorkflowName = 'Flow Immunophenotyping - PhenoGraph';
 /// Each "run" is a cloned workflow in the project.
 class TercenWorkflowService implements DataService {
   final ServiceFactory _factory;
-  final String _projectId;
+  String _projectId;
 
   /// Cache the template workflow ID after first lookup.
   String? _templateWorkflowId;
@@ -33,6 +33,7 @@ class TercenWorkflowService implements DataService {
 
   @override
   Future<List<RunEntry>> getRunHistory() async {
+    if (_projectId.isEmpty) return [];
     try {
       final allDocs = await _factory.projectDocumentService
           .findProjectObjectsByLastModifiedDate(
@@ -264,9 +265,7 @@ class TercenWorkflowService implements DataService {
 
   @override
   Future<List<FcsChannel>> getChannels() async {
-    // Channels come from the uploaded FCS data. In a real implementation,
-    // this would read the FCS headers from the uploaded file.
-    // For now, delegate to the results of the most recent run.
+    if (_projectId.isEmpty) return [];
     try {
       final history = await getRunHistory();
       if (history.isNotEmpty) {
@@ -326,6 +325,7 @@ class TercenWorkflowService implements DataService {
         ..name = projectName
         ..acl.owner = teamName;
       final created = await _factory.projectService.create(project);
+      _projectId = created.id;
       return created.id;
     } catch (e) {
       print('Tercen error in createProject: $e');
