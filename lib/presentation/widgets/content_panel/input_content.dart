@@ -74,8 +74,13 @@ class _Stage0ProjectSetup extends StatelessWidget {
         SizedBox(
           width: 320,
           child: DropdownButtonFormField<String>(
-            value: provider.selectedTeam,
+            value: provider.availableTeams.contains(provider.selectedTeam)
+                ? provider.selectedTeam
+                : null,
             decoration: const InputDecoration(isDense: true),
+            hint: provider.isLoading
+                ? const Text('Loading teams...')
+                : const Text('Select a team'),
             items: provider.availableTeams
                 .map((t) => DropdownMenuItem(value: t, child: Text(t)))
                 .toList(),

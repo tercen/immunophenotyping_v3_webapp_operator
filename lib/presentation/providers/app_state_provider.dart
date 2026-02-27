@@ -65,10 +65,16 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Load teams for project setup (Stage 0)
-      final teams = await _dataService.getTeams();
-      _availableTeams =
-          teams.isNotEmpty ? teams : ['My Team'];
+      // Load teams for project setup (Stage 0).
+      // Isolated so a failure here does not block history/channel loading.
+      try {
+        final teams = await _dataService.getTeams();
+        _availableTeams = teams.isNotEmpty ? teams : _availableTeams;
+      } catch (e) {
+        print('Failed to load teams (non-fatal): $e');
+        // Keep whatever fallback _availableTeams already holds.
+      }
+      if (_availableTeams.isEmpty) _availableTeams = ['My Team'];
       _selectedTeam = _availableTeams.first;
 
       final history = await _dataService.getRunHistory();
@@ -118,7 +124,7 @@ class AppStateProvider extends ChangeNotifier {
   // =============================================
   // Stage 0: Project Setup
   // =============================================
-  String _selectedTeam = 'My Team';
+  String _selectedTeam = '';
   String get selectedTeam => _selectedTeam;
   void setSelectedTeam(String team) {
     _selectedTeam = team;

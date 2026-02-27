@@ -297,17 +297,33 @@ class TercenWorkflowService implements DataService {
   Future<List<String>> getTeams() async {
     try {
       final user = await _factory.userService.get('');
-      final teams = <String>[user.name];
-      // Find teams owned by this user
-      final ownedTeams = await _factory.teamService.findTeamByOwner(
-        keys: [user.name],
-      );
-      for (final team in ownedTeams) {
-        if (!teams.contains(team.name)) {
-          teams.add(team.name);
+      final teamNames = <String>[user.name];
+
+      // Teams this user owns.
+      try {
+        final ownedTeams = await _factory.teamService.findTeamByOwner(
+          keys: [user.name],
+        );
+        for (final team in ownedTeams) {
+          if (!teamNames.contains(team.name)) teamNames.add(team.name);
         }
+      } catch (e) {
+        print('Could not fetch owned teams (non-fatal): $e');
       }
-      return teams;
+
+      // Teams this user is a member of (but does not own).
+      try {
+        final memberTeams = await _factory.userService.findTeamMembers(
+          keys: [user.name],
+        );
+        for (final team in memberTeams) {
+          if (!teamNames.contains(team.name)) teamNames.add(team.name);
+        }
+      } catch (e) {
+        print('Could not fetch member teams (non-fatal): $e');
+      }
+
+      return teamNames;
     } catch (e) {
       print('Tercen error in getTeams: $e');
       rethrow;
