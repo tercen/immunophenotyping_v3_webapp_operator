@@ -422,9 +422,15 @@ class TercenWorkflowService implements DataService {
         -1,              // limit: -1 = all results
       );
 
+      // getLibrary() returns List<Document> (base objects), not List<Workflow>.
+      // Match by name directly on the Document base class.
+      print('Library search returned ${libDocs.length} documents:');
+      for (final doc in libDocs) {
+        print('  doc: "${doc.name}" (kind=${doc.kind}, id=${doc.id})');
+      }
+
       final match = libDocs
-          .whereType<Workflow>()
-          .where((wf) => wf.name == _templateWorkflowName)
+          .where((doc) => doc.name == _templateWorkflowName)
           .firstOrNull;
 
       if (match != null) {
