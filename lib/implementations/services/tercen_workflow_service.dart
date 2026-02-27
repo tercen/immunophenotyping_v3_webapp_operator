@@ -575,7 +575,10 @@ class TercenWorkflowService implements DataService {
     try {
       final workflow = await _factory.workflowService.get(workflowId);
 
+      // state = InitState() and owner are required — V2 sets both explicitly.
       final task = RunWorkflowTask()
+        ..state = InitState()
+        ..owner = workflow.acl.owner
         ..projectId = _projectId
         ..workflowId = workflow.id
         ..workflowRev = workflow.rev;
@@ -675,7 +678,10 @@ class TercenWorkflowService implements DataService {
         throw StateError('Step "$stepName" not found in workflow $workflowId');
       }
 
+      // state = InitState() and owner are required — V2 sets both explicitly.
       final task = RunWorkflowTask()
+        ..state = InitState()
+        ..owner = workflow.acl.owner
         ..projectId = _projectId
         ..workflowId = workflow.id
         ..workflowRev = workflow.rev;
