@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_colors_dark.dart';
 import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_text_styles.dart';
 import '../providers/app_state_provider.dart';
 import '../providers/theme_provider.dart';
 
@@ -49,9 +48,6 @@ class HeaderPanel extends StatelessWidget {
     final isDark = context.watch<ThemeProvider>().isDarkMode;
     final bgColor = isDark ? AppColorsDark.surface : AppColors.surface;
     final borderColor = isDark ? AppColorsDark.border : AppColors.border;
-    final textPrimary =
-        isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
-
     return Container(
       height: AppSpacing.topBarHeight,
       decoration: BoxDecoration(
@@ -61,7 +57,15 @@ class HeaderPanel extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
       child: Row(
         children: [
-          // Exit button — always visible, far left
+          // Push everything to the right
+          const Spacer(),
+          // Action buttons (dynamic, right-aligned)
+          ..._buildActions(provider, isDark),
+          // Divider separating actions from exit
+          const SizedBox(width: AppSpacing.md),
+          Container(width: 1, height: 20, color: borderColor),
+          const SizedBox(width: AppSpacing.sm),
+          // Exit button — always far right
           IconButton(
             onPressed: onExit,
             icon: Icon(Icons.close, size: 18, color: isDark ? AppColorsDark.textSecondary : AppColors.textSecondary),
@@ -70,15 +74,6 @@ class HeaderPanel extends StatelessWidget {
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text(
-              provider.headerHeading,
-              style: AppTextStyles.h3.copyWith(color: textPrimary),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          ..._buildActions(provider, isDark),
         ],
       ),
     );

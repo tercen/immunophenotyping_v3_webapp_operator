@@ -59,6 +59,13 @@ class DisplayContent extends StatelessWidget {
             child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Run title
+            Text(
+              provider.headerHeading,
+              style: AppTextStyles.h1.copyWith(color: textPrimary),
+            ),
+            const SizedBox(height: AppSpacing.lg),
+
             // Error banner for error runs
             if (run.status == 'error' && result?.errorMessage != null)
               _ErrorBanner(

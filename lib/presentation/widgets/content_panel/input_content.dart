@@ -23,6 +23,8 @@ class InputContent extends StatelessWidget {
     final provider = context.watch<AppStateProvider>();
     final isDark = context.watch<ThemeProvider>().isDarkMode;
     final bgColor = isDark ? AppColorsDark.background : AppColors.background;
+    final textPrimary =
+        isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
 
     return Container(
       color: bgColor,
@@ -30,19 +32,29 @@ class InputContent extends StatelessWidget {
         alignment: Alignment.topLeft,
         child: SingleChildScrollView(
           padding: EdgeInsets.only(
-            left: AppSpacing.md + 32 + AppSpacing.sm, // align with header title (past exit button)
+            left: AppSpacing.md + 32 + AppSpacing.sm,
             right: AppSpacing.md,
             top: AppSpacing.lg,
             bottom: AppSpacing.lg,
           ),
-          child: switch (provider.currentStage) {
-            0 => _Stage0ProjectSetup(isDark: isDark),
-            1 => _Stage1UploadFcs(isDark: isDark),
-            2 => _Stage2UploadAnnotation(isDark: isDark),
-            3 => _Stage3ChannelSelection(isDark: isDark),
-            4 => _Stage4AnalysisSettings(isDark: isDark),
-            _ => const SizedBox.shrink(),
-          },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                provider.headerHeading,
+                style: AppTextStyles.h1.copyWith(color: textPrimary),
+              ),
+              const SizedBox(height: AppSpacing.lg),
+              switch (provider.currentStage) {
+                0 => _Stage0ProjectSetup(isDark: isDark),
+                1 => _Stage1UploadFcs(isDark: isDark),
+                2 => _Stage2UploadAnnotation(isDark: isDark),
+                3 => _Stage3ChannelSelection(isDark: isDark),
+                4 => _Stage4AnalysisSettings(isDark: isDark),
+                _ => const SizedBox.shrink(),
+              },
+            ],
+          ),
         ),
       ),
     );
