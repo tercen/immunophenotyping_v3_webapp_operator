@@ -522,6 +522,29 @@ class TercenWorkflowService implements DataService {
     try {
       final workflow = await _factory.workflowService.get(workflowId);
 
+      // DEBUG: show step structure so we can identify the correct TableStep
+      // for file input (remove once step names are confirmed).
+      print('=== Workflow steps in $workflowId ===');
+      for (final step in workflow.steps) {
+        if (step is TableStep) {
+          print('  TableStep: "${step.name}" id=${step.id}'
+              ' relation=${step.model.relation.kind}');
+        } else if (step is DataStep) {
+          final props =
+              step.model.operatorSettings.operatorRef.propertyValues;
+          final propNames = props.map((p) => p.name).join(', ');
+          print('  DataStep:  "${step.name}" id=${step.id}'
+              ' props=[$propNames]');
+        } else {
+          print('  Other(${step.kind}): "${step.name}" id=${step.id}');
+        }
+      }
+      print('=== links ===');
+      for (final link in workflow.links) {
+        print('  ${link.outputId} -> ${link.inputId}');
+      }
+      print('=== end ===');
+
       for (final step in workflow.steps) {
         if (step is! DataStep) continue;
         final props =
