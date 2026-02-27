@@ -52,15 +52,65 @@ class InputContent extends StatelessWidget {
 // =============================================================================
 // Stage 0: Project Setup
 // =============================================================================
-class _Stage0ProjectSetup extends StatelessWidget {
+class _Stage0ProjectSetup extends StatefulWidget {
   final bool isDark;
   const _Stage0ProjectSetup({required this.isDark});
 
   @override
+  State<_Stage0ProjectSetup> createState() => _Stage0ProjectSetupState();
+}
+
+class _Stage0ProjectSetupState extends State<_Stage0ProjectSetup> {
+  late final TextEditingController _projectNameController;
+  bool _userHasEdited = false;
+  AppStateProvider? _provider;
+
+  @override
+  void initState() {
+    super.initState();
+    _projectNameController = TextEditingController();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final provider = context.read<AppStateProvider>();
+    if (_provider != provider) {
+      _provider?.removeListener(_onProviderChanged);
+      _provider = provider;
+      _provider!.addListener(_onProviderChanged);
+      // Seed controller with whatever the provider currently has.
+      if (_projectNameController.text.isEmpty) {
+        _projectNameController.text = provider.projectName;
+      }
+    }
+  }
+
+  void _onProviderChanged() {
+    if (!_userHasEdited && _provider != null) {
+      final newName = _provider!.projectName;
+      if (_projectNameController.text != newName) {
+        _projectNameController.text = newName;
+        _projectNameController.selection = TextSelection.fromPosition(
+          TextPosition(offset: newName.length),
+        );
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _provider?.removeListener(_onProviderChanged);
+    _projectNameController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final provider = context.watch<AppStateProvider>();
-    final labelColor =
-        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
+    final labelColor = widget.isDark
+        ? AppColorsDark.textSecondary
+        : AppColors.textSecondary;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -99,12 +149,15 @@ class _Stage0ProjectSetup extends StatelessWidget {
         SizedBox(
           width: 480,
           child: TextFormField(
-            initialValue: provider.projectName,
+            controller: _projectNameController,
             decoration: const InputDecoration(
               hintText: 'Enter project name...',
               isDense: true,
             ),
-            onChanged: (value) => provider.setProjectName(value),
+            onChanged: (value) {
+              _userHasEdited = true;
+              provider.setProjectName(value);
+            },
           ),
         ),
       ],

@@ -76,6 +76,7 @@ class AppStateProvider extends ChangeNotifier {
       }
       if (_availableTeams.isEmpty) _availableTeams = ['My Team'];
       _selectedTeam = _availableTeams.first;
+      _projectName = _generateDefaultProjectName(_selectedTeam);
 
       final history = await _dataService.getRunHistory();
       _runHistory = history;
@@ -131,11 +132,28 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _projectName = 'Flow Immunophenotyping - User - 2026-02-25';
+  String _projectName = '';
   String get projectName => _projectName;
   void setProjectName(String name) {
     _projectName = name;
     notifyListeners();
+  }
+
+  String? _projectCreationError;
+  String? get projectCreationError => _projectCreationError;
+  void clearProjectCreationError() {
+    _projectCreationError = null;
+    notifyListeners();
+  }
+
+  /// Generates the default project name: Flow Immunophenotyping - YYYY-MM-DD_HH_mm_SS-username
+  String _generateDefaultProjectName(String username) {
+    final now = DateTime.now();
+    final date =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final time =
+        '${now.hour.toString().padLeft(2, '0')}_${now.minute.toString().padLeft(2, '0')}_${now.second.toString().padLeft(2, '0')}';
+    return 'Flow Immunophenotyping - ${date}_$time-$username';
   }
 
   List<String> _availableTeams = [];
@@ -540,7 +558,7 @@ class AppStateProvider extends ChangeNotifier {
         instanceName: 'projectId',
       );
     } catch (e) {
-      _error = 'Failed to create project: $e';
+      _projectCreationError = 'Failed to create project: $e';
       _isLoading = false;
       notifyListeners();
       return;

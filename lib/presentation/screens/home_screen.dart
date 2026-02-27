@@ -21,12 +21,43 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  AppStateProvider? _provider;
+
   @override
   void initState() {
     super.initState();
     Future.microtask(() {
-      context.read<AppStateProvider>().loadData();
+      if (!mounted) return;
+      _provider = context.read<AppStateProvider>();
+      _provider!.addListener(_onProviderChanged);
+      _provider!.loadData();
     });
+  }
+
+  @override
+  void dispose() {
+    _provider?.removeListener(_onProviderChanged);
+    super.dispose();
+  }
+
+  void _onProviderChanged() {
+    final error = _provider?.projectCreationError;
+    if (error != null && mounted) {
+      _provider!.clearProjectCreationError();
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Project Creation Failed'),
+          content: Text(error),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   @override
