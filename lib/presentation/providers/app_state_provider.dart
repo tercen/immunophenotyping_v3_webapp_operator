@@ -279,7 +279,6 @@ class AppStateProvider extends ChangeNotifier {
         ? successFiles.first.filename
         : '${successFiles.length} files';
     _fcsFileSize = successFiles.fold(0, (sum, f) => sum + f.fileSize);
-    _fcsFileCount = successFiles.length;
     _fcsChannelCount = 0; // populated after "Read FCS" step runs
     _fcsTotalEvents = 0;  // populated after "Read FCS" step runs
     _fcsUploaded = true;
@@ -290,6 +289,17 @@ class AppStateProvider extends ChangeNotifier {
     if (firstWithBytes != null) {
       _fcsBytes = firstWithBytes.bytes;
       _fcsUploadFilename = firstWithBytes.filename;
+    }
+
+    // Count files: if a single zip was uploaded, count entries inside it;
+    // otherwise the count is the number of individual files selected.
+    if (successFiles.length == 1 &&
+        (successFiles.first.filename.toLowerCase().endsWith('.zip')) &&
+        _fcsBytes != null) {
+      final zipCount = _countZipEntries(_fcsBytes!);
+      _fcsFileCount = zipCount > 0 ? zipCount : 1;
+    } else {
+      _fcsFileCount = successFiles.length;
     }
     notifyListeners();
   }
@@ -1016,6 +1026,24 @@ class AppStateProvider extends ChangeNotifier {
 
     _contentMode = ContentMode.input;
     navigateToStage(1);
+  }
+
+  /// Count the number of entries in a zip file by reading the End of Central
+  /// Directory (EOCD) record at the end of the bytes.  Returns 0 if the bytes
+  /// are not a valid zip.
+  int _countZipEntries(Uint8List bytes) {
+    // EOCD signature: PK\x05\x06.  Search backwards from end (min 22 bytes).
+    if (bytes.length < 22) return 0;
+    for (int i = bytes.length - 22; i >= 0; i--) {
+      if (bytes[i] == 0x50 &&
+          bytes[i + 1] == 0x4B &&
+          bytes[i + 2] == 0x05 &&
+          bytes[i + 3] == 0x06) {
+        // Total number of entries is a uint16LE at offset +10 from EOCD start.
+        return bytes[i + 10] | (bytes[i + 11] << 8);
+      }
+    }
+    return 0;
   }
 
   /// Delete a run and its workflow from the project.

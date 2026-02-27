@@ -446,28 +446,15 @@ class TercenWorkflowService implements DataService {
       final templateId = await _findTemplateWorkflowId();
 
       // copyApp returns a prepared workflow body — not yet persisted.
-      // id and rev will be empty. Must set acl.owner then create() to persist.
-      // V2's WorkflowRunner.setupRun() does the same check:
-      //   if (workflow.id == "") { workflow = await workflowService.create(workflow); }
-      var workflow =
+      // V2 pattern (immunophenotyping_v2_webapp_operator settings_screen.dart):
+      //   runWorkflow = await factory.workflowService.copyApp(templateId, projectId);
+      //   runWorkflow = await factory.workflowService.create(runWorkflow);
+      // Do NOT modify workflow.acl — copyApp already sets ownership correctly
+      // on the server side. Touching acl causes a JS-level null crash.
+      final workflow =
           await _factory.workflowService.copyApp(templateId, projectId);
-
-      final project = await _factory.projectService.get(projectId);
-      workflow.acl = Acl()..owner = project.acl.owner;
-      workflow.isHidden = false;
-      workflow.isDeleted = false;
-
-      if (workflow.id.isEmpty || workflow.rev.isEmpty) {
-        workflow.id = '';
-        workflow.rev = '';
-        final created = await _factory.workflowService.create(workflow);
-        return created.id;
-      } else {
-        // Workflow already persisted (edge case) — update and refresh.
-        await _factory.workflowService.update(workflow);
-        final refreshed = await _factory.workflowService.get(workflow.id);
-        return refreshed.id;
-      }
+      final created = await _factory.workflowService.create(workflow);
+      return created.id;
     } catch (e) {
       print('Tercen error in cloneWorkflowTemplate: $e');
       await _printDiagnosticReport();
