@@ -9,7 +9,12 @@ import '../../domain/models/run_result.dart';
 import '../../domain/services/data_service.dart';
 import '../../presentation/providers/app_state_provider.dart';
 
-/// Template workflow name to search for when cloning.
+/// Template workflow GitHub URL and version — same identifiers used by V2.
+/// These match the template registered in the Tercen Site/Main Library.
+const _templateWorkflowUrl = 'https://github.com/tercen/immunophenotyping_template';
+const _templateWorkflowVersion = '2.3.0';
+
+/// Fallback: display name used only for error messages.
 const _templateWorkflowName = 'Flow Immunophenotyping - PhenoGraph';
 
 /// Real Tercen data service for Flow E (Type 3 workflow manager).
@@ -423,15 +428,19 @@ class TercenWorkflowService implements DataService {
       );
 
       // getLibrary() returns List<Document> (base objects), not List<Workflow>.
-      // Match by name directly on the Document base class.
+      // Match by URL + version — same approach used by V2 via webapp_utils.
+      // doc.url.uri is the primary URL; doc.urls is a list of additional URLs.
       print('Library search returned ${libDocs.length} documents:');
       for (final doc in libDocs) {
-        print('  doc: "${doc.name}" (kind=${doc.kind}, id=${doc.id})');
+        print('  doc: "${doc.name}" v${doc.version} url=${doc.url.uri} (id=${doc.id})');
       }
 
-      final match = libDocs
-          .where((doc) => doc.name == _templateWorkflowName)
-          .firstOrNull;
+      final match = libDocs.where((doc) {
+        final versionMatch = doc.version == _templateWorkflowVersion;
+        final urlMatch = doc.url.uri == _templateWorkflowUrl ||
+            doc.urls.any((u) => u.uri == _templateWorkflowUrl);
+        return versionMatch && urlMatch;
+      }).firstOrNull;
 
       if (match != null) {
         _templateWorkflowId = match.id;
