@@ -296,32 +296,21 @@ class TercenWorkflowService implements DataService {
   @override
   Future<List<String>> getTeams() async {
     try {
-      final user = await _factory.userService.get('');
-      final teamNames = <String>[user.name];
+      // useFactory: true gives the concrete subclass, which has teamAcl.aces
+      // populated with the teams this user belongs to.
+      final user = await _factory.userService.get('', useFactory: true);
 
-      // Teams this user owns.
-      try {
-        final ownedTeams = await _factory.teamService.findTeamByOwner(
-          keys: [user.name],
-        );
-        for (final team in ownedTeams) {
-          if (!teamNames.contains(team.name)) teamNames.add(team.name);
+      final teamNames = <String>[];
+      for (final ace in user.teamAcl.aces) {
+        if (ace.principals.isNotEmpty) {
+          teamNames.add(ace.principals[0].principalId);
         }
-      } catch (e) {
-        print('Could not fetch owned teams (non-fatal): $e');
       }
 
-      // Teams this user is a member of (but does not own).
-      try {
-        final memberTeams = await _factory.userService.findTeamMembers(
-          keys: [user.name],
-        );
-        for (final team in memberTeams) {
-          if (!teamNames.contains(team.name)) teamNames.add(team.name);
-        }
-      } catch (e) {
-        print('Could not fetch member teams (non-fatal): $e');
-      }
+      // Sort alphabetically, then put the user's own name first (home team).
+      teamNames.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      teamNames.remove(user.name);
+      teamNames.insert(0, user.name);
 
       return teamNames;
     } catch (e) {
