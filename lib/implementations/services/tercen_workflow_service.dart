@@ -397,9 +397,30 @@ class TercenWorkflowService implements DataService {
   Future<String> cloneWorkflowTemplate(String projectId) async {
     try {
       final templateId = await _findTemplateWorkflowId();
-      final cloned =
+
+      // copyApp returns a prepared workflow body — not yet persisted.
+      // id and rev will be empty. Must set acl.owner then create() to persist.
+      // V2's WorkflowRunner.setupRun() does the same check:
+      //   if (workflow.id == "") { workflow = await workflowService.create(workflow); }
+      var workflow =
           await _factory.workflowService.copyApp(templateId, projectId);
-      return cloned.id;
+
+      final project = await _factory.projectService.get(projectId);
+      workflow.acl = Acl()..owner = project.acl.owner;
+      workflow.isHidden = false;
+      workflow.isDeleted = false;
+
+      if (workflow.id.isEmpty || workflow.rev.isEmpty) {
+        workflow.id = '';
+        workflow.rev = '';
+        final created = await _factory.workflowService.create(workflow);
+        return created.id;
+      } else {
+        // Workflow already persisted (edge case) — update and refresh.
+        await _factory.workflowService.update(workflow);
+        final refreshed = await _factory.workflowService.get(workflow.id);
+        return refreshed.id;
+      }
     } catch (e) {
       print('Tercen error in cloneWorkflowTemplate: $e');
       await _printDiagnosticReport();
