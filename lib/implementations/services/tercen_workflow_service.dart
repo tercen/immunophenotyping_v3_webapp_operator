@@ -238,25 +238,65 @@ class TercenWorkflowService implements DataService {
     }
   }
 
-  /// Read channel reference from FCS read step output.
+  /// Read the FCS channel list from the workflow.
+  ///
+  /// Preferred: "Channel names and descriptions" step output has a proper
+  /// name+description row per channel — available after the full pipeline runs.
+  ///
+  /// Fallback: "Read FCS" step output has one column per FCS channel; the
+  /// column names are the channel names. Available immediately after Stage 1
+  /// preflight (only "Read FCS" has run).
   Future<List<FcsChannel>> _readChannelReference(Workflow wf) async {
     try {
-      final table = await _readStepOutput(wf, 'Read FCS');
-      if (table == null) return [];
-
-      final names = _getColumnValues<String>(table, 'name');
-      final descriptions = _getColumnValues<String>(table, 'description');
-
-      if (names == null) return [];
-
-      return List.generate(names.length, (i) {
-        final desc =
-            descriptions != null && i < descriptions.length
+      // Primary: "Channel names and descriptions" step (name + description rows)
+      final nameDescTable =
+          await _readStepOutput(wf, 'Channel names and descriptions');
+      if (nameDescTable != null) {
+        final names = _getColumnValues<String>(nameDescTable, 'name');
+        final descriptions =
+            _getColumnValues<String>(nameDescTable, 'description');
+        if (names != null && names.isNotEmpty) {
+          return List.generate(names.length, (i) {
+            final desc = descriptions != null && i < descriptions.length
                 ? descriptions[i]
                 : names[i];
-        final isQc = _isQcChannel(names[i], desc);
-        return FcsChannel(name: names[i], description: desc, isQc: isQc);
-      });
+            final isQc = _isQcChannel(names[i], desc);
+            return FcsChannel(name: names[i], description: desc, isQc: isQc);
+          });
+        }
+      }
+
+      // Fallback: column names of the "Read FCS" schema are the channel names.
+      // Skips system/metadata columns (dot-prefix).
+      DataStep? readFcsStep;
+      for (final step in wf.steps) {
+        if (step is DataStep && step.name == 'Read FCS') {
+          readFcsStep = step;
+          break;
+        }
+      }
+      if (readFcsStep == null ||
+          readFcsStep.state.taskState is! DoneState) return [];
+
+      final relations = _getSimpleRelations(readFcsStep.computedRelation);
+      if (relations.isEmpty) return [];
+
+      final schemaIds = relations.map((r) => r.id).toList();
+      final schemas = await _factory.tableSchemaService.list(schemaIds);
+
+      for (final schema in schemas) {
+        if (schema.columns.isEmpty) continue;
+        final channels = <FcsChannel>[];
+        for (final col in schema.columns) {
+          // Skip Tercen system columns (dot-prefixed) and row-key columns
+          if (col.name.startsWith('.') || col.name == 'documentId') continue;
+          final isQc = _isQcChannel(col.name, col.name);
+          channels.add(
+              FcsChannel(name: col.name, description: col.name, isQc: isQc));
+        }
+        if (channels.isNotEmpty) return channels;
+      }
+      return [];
     } catch (e) {
       print('Warning: could not read channel reference: $e');
       return [];
