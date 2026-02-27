@@ -402,10 +402,40 @@ class TercenWorkflowService implements DataService {
     }
   }
 
-  /// Find the template workflow ID by name in the project.
+  /// Find the template workflow ID by searching library teams first, then
+  /// falling back to the current project (for in-project installs).
+  ///
+  /// Tercen stores shared workflow templates in library teams (Site Library,
+  /// Main Library), not in user projects. The [documentService.getLibrary]
+  /// call searches across all accessible library teams.
   Future<String> _findTemplateWorkflowId() async {
     if (_templateWorkflowId != null) return _templateWorkflowId!;
 
+    // Primary: search all library teams (Site Library, Main Library).
+    try {
+      final libDocs = await _factory.documentService.getLibrary(
+        '',              // projectId: empty = not scoped to a project
+        const [],        // teamIds: empty = all accessible teams
+        const ['Workflow'], // only workflow documents
+        const [],        // tags: no filter
+        0,               // offset
+        -1,              // limit: -1 = all results
+      );
+
+      final match = libDocs
+          .whereType<Workflow>()
+          .where((wf) => wf.name == _templateWorkflowName)
+          .firstOrNull;
+
+      if (match != null) {
+        _templateWorkflowId = match.id;
+        return _templateWorkflowId!;
+      }
+    } catch (e) {
+      print('Library search failed (will try project fallback): $e');
+    }
+
+    // Fallback: search within the current project.
     final allDocs = await _factory.projectDocumentService
         .findProjectObjectsByLastModifiedDate(
       startKey: [_projectId, ''],
@@ -419,7 +449,10 @@ class TercenWorkflowService implements DataService {
 
     if (workflows.isEmpty) {
       throw StateError(
-          'Template workflow "$_templateWorkflowName" not found in project $_projectId');
+          'Template workflow "$_templateWorkflowName" not found in libraries '
+          'or project $_projectId. '
+          'Please ensure the immunophenotyping template is installed in your '
+          'Tercen library (Site Library or Main Library).');
     }
 
     _templateWorkflowId = workflows.first.id;
