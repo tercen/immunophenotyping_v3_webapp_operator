@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../di/service_locator.dart';
@@ -258,9 +259,9 @@ class AppStateProvider extends ChangeNotifier {
         ? successFiles.first.filename
         : '${successFiles.length} files';
     _fcsFileSize = successFiles.fold(0, (sum, f) => sum + f.fileSize);
-    _fcsFileCount = 4; // Estimated — real count determined by workflow
-    _fcsChannelCount = 38;
-    _fcsTotalEvents = 4082;
+    _fcsFileCount = successFiles.length;
+    _fcsChannelCount = 0; // determined after workflow runs
+    _fcsTotalEvents = 0;  // determined after workflow runs
     _fcsUploaded = true;
 
     // Capture bytes for Tercen upload
@@ -284,17 +285,22 @@ class AppStateProvider extends ChangeNotifier {
     }
 
     _annotationFilename = successFiles.first.filename;
-    _annotationSampleCount = 4; // Estimated — real count determined by workflow
-    _annotationConditions = ['Donor1', 'Donor2', 'Donor3', 'Donor4'];
-    _annotationCrossCheckPassed = true;
     _annotationUploaded = true;
 
-    // Capture bytes for Tercen upload
+    // Capture bytes for Tercen upload and parse CSV for real metadata
     final firstWithBytes =
         successFiles.where((f) => f.bytes != null).firstOrNull;
     if (firstWithBytes != null) {
       _annotationBytes = firstWithBytes.bytes;
       _annotationUploadFilename = firstWithBytes.filename;
+      final (count, conditions) = _parseCsvAnnotation(firstWithBytes.bytes!);
+      _annotationSampleCount = count;
+      _annotationConditions = conditions;
+      _annotationCrossCheckPassed = count > 0;
+    } else {
+      _annotationSampleCount = 0;
+      _annotationConditions = [];
+      _annotationCrossCheckPassed = false;
     }
     notifyListeners();
   }
@@ -408,8 +414,9 @@ class AppStateProvider extends ChangeNotifier {
     final summary = <String, String>{};
 
     if (_fcsUploaded) {
-      summary['FCS file'] =
-          '$_fcsFilename ($_fcsFileCount files, $_fcsChannelCount ch)';
+      final fileWord = _fcsFileCount == 1 ? 'file' : 'files';
+      final chPart = _fcsChannelCount > 0 ? ', $_fcsChannelCount ch' : '';
+      summary['FCS file'] = '$_fcsFilename ($_fcsFileCount $fileWord$chPart)';
     }
     if (_annotationUploaded) {
       summary['Annotation'] =
@@ -501,7 +508,9 @@ class AppStateProvider extends ChangeNotifier {
       case 2:
         return _annotationUploaded && _annotationCrossCheckPassed;
       case 3:
-        return selectedChannelCount > 0;
+        // Allow proceeding when no channels are loaded yet (first run uses all).
+        // Once channels are populated from a prior run, require at least one selected.
+        return _allChannels.isEmpty || selectedChannelCount > 0;
       case 4:
         return _runName.isNotEmpty;
       default:
@@ -716,6 +725,22 @@ class AppStateProvider extends ChangeNotifier {
   Future<void> _loadResults(String runId) async {
     try {
       _currentResult = await _dataService.getResults(runId);
+      // After the first run completes, load channels from the workflow output
+      // so that re-runs can show real channel selection in Stage 3.
+      if (_allChannels.isEmpty) {
+        try {
+          final channels = await _dataService.getChannels();
+          if (channels.isNotEmpty) {
+            _allChannels = channels;
+            _selectedChannels = {
+              for (final ch in channels)
+                if (!ch.isQc) ch.name: true else ch.name: false,
+            };
+          }
+        } catch (e) {
+          print('Warning: could not reload channels after run: $e');
+        }
+      }
       notifyListeners();
     } catch (e) {
       print('Error loading results for $runId: $e');
@@ -875,4 +900,72 @@ class AppStateProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
+}
+
+// =============================================================================
+// CSV annotation parsing helpers (top-level, file-private)
+// =============================================================================
+
+/// Parse annotation CSV bytes → (sampleCount, conditions).
+/// Looks for a 'condition', 'group', or 'sample_type' column for conditions.
+/// Returns (0, []) on any parse failure.
+(int, List<String>) _parseCsvAnnotation(Uint8List bytes) {
+  try {
+    final text = utf8.decode(bytes, allowMalformed: true);
+    final lines = text
+        .split('\n')
+        .map((l) => l.replaceAll('\r', '').trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    if (lines.length < 2) return (0, []);
+
+    final headers =
+        _splitCsvRow(lines[0]).map((h) => h.toLowerCase()).toList();
+    final conditionIdx = headers.indexWhere((h) =>
+        h == 'condition' ||
+        h == 'group' ||
+        h == 'sample_type' ||
+        h == 'class');
+
+    final dataRows = lines.sublist(1);
+    final sampleCount = dataRows.length;
+
+    final conditions = <String>[];
+    if (conditionIdx >= 0) {
+      final seen = <String>{};
+      for (final row in dataRows) {
+        final cols = _splitCsvRow(row);
+        if (conditionIdx < cols.length) {
+          final cond = cols[conditionIdx].trim();
+          if (cond.isNotEmpty && seen.add(cond)) {
+            conditions.add(cond);
+          }
+        }
+      }
+      conditions.sort();
+    }
+    return (sampleCount, conditions);
+  } catch (_) {
+    return (0, []);
+  }
+}
+
+/// Split a single CSV row respecting double-quoted fields.
+List<String> _splitCsvRow(String row) {
+  final result = <String>[];
+  final buf = StringBuffer();
+  bool inQuotes = false;
+  for (var i = 0; i < row.length; i++) {
+    final c = row[i];
+    if (c == '"') {
+      inQuotes = !inQuotes;
+    } else if (c == ',' && !inQuotes) {
+      result.add(buf.toString().trim());
+      buf.clear();
+    } else {
+      buf.write(c);
+    }
+  }
+  result.add(buf.toString().trim());
+  return result;
 }

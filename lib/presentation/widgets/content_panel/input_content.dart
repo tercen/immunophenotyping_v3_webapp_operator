@@ -217,9 +217,13 @@ class _Stage2UploadAnnotation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final provider = context.read<AppStateProvider>();
+    final provider = context.watch<AppStateProvider>();
     final labelColor =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
+    final textPrimary =
+        isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
+    final successColor = isDark ? AppColorsDark.success : AppColors.success;
+    final errorColor = isDark ? AppColorsDark.error : AppColors.error;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -235,6 +239,40 @@ class _Stage2UploadAnnotation extends StatelessWidget {
           onFilesChanged: (files) =>
               provider.updateAnnotationUploadFromFiles(files),
         ),
+        // Show real parsed data after upload
+        if (provider.annotationUploaded) ...[
+          const SizedBox(height: AppSpacing.sm),
+          if (provider.annotationCrossCheckPassed) ...[
+            Row(
+              children: [
+                Icon(Icons.check_circle, size: 14, color: successColor),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  '${provider.annotationSampleCount} sample${provider.annotationSampleCount == 1 ? '' : 's'} found',
+                  style: AppTextStyles.bodySmall.copyWith(color: textPrimary),
+                ),
+              ],
+            ),
+            if (provider.annotationConditions.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                'Conditions: ${provider.annotationConditions.join(', ')}',
+                style: AppTextStyles.bodySmall.copyWith(color: labelColor),
+              ),
+            ],
+          ] else ...[
+            Row(
+              children: [
+                Icon(Icons.warning_amber, size: 14, color: errorColor),
+                const SizedBox(width: AppSpacing.xs),
+                Text(
+                  'CSV appears empty or invalid — no data rows found.',
+                  style: AppTextStyles.bodySmall.copyWith(color: errorColor),
+                ),
+              ],
+            ),
+          ],
+        ],
       ],
     );
   }
@@ -266,34 +304,43 @@ class _Stage3ChannelSelection extends StatelessWidget {
               style:
                   AppTextStyles.sectionHeader.copyWith(color: labelColor),
             ),
-            const Spacer(),
-            Text(
-              '${provider.selectedChannelCount} of ${provider.allChannels.length} selected',
-              style: AppTextStyles.bodySmall.copyWith(color: labelColor),
-            ),
+            if (provider.allChannels.isNotEmpty) ...[
+              const Spacer(),
+              Text(
+                '${provider.selectedChannelCount} of ${provider.allChannels.length} selected',
+                style: AppTextStyles.bodySmall.copyWith(color: labelColor),
+              ),
+            ],
           ],
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
-        // Select All / Deselect All
-        Row(
-          children: [
-            OutlinedButton(
-              onPressed: () => provider.selectAllChannels(),
-              child: const Text('Select All'),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            OutlinedButton(
-              onPressed: () => provider.deselectAllChannels(),
-              child: const Text('Deselect All'),
-            ),
-          ],
-        ),
-        const SizedBox(height: AppSpacing.controlSpacing),
-        // Channel checkbox grid
-        Wrap(
-          spacing: AppSpacing.sm,
-          runSpacing: AppSpacing.xs,
-          children: provider.allChannels.map((ch) {
+        if (provider.allChannels.isEmpty) ...[
+          Text(
+            'Channel list not yet available. All channels will be used automatically on the first run. '
+            'After the first analysis completes, re-run to select specific channels.',
+            style: AppTextStyles.body.copyWith(color: labelColor),
+          ),
+        ] else ...[
+          // Select All / Deselect All
+          Row(
+            children: [
+              OutlinedButton(
+                onPressed: () => provider.selectAllChannels(),
+                child: const Text('Select All'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              OutlinedButton(
+                onPressed: () => provider.deselectAllChannels(),
+                child: const Text('Deselect All'),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.controlSpacing),
+          // Channel checkbox grid
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.xs,
+            children: provider.allChannels.map((ch) {
             final isSelected =
                 provider.selectedChannels[ch.name] ?? false;
             return SizedBox(
@@ -332,6 +379,7 @@ class _Stage3ChannelSelection extends StatelessWidget {
             );
           }).toList(),
         ),
+        ],
         const SizedBox(height: AppSpacing.lg),
         // DOWNSAMPLING section
         Text(
