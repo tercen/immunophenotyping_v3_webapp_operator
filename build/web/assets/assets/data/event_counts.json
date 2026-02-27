@@ -1,6 +1,0 @@
-[
-  {"filename": "omip69_1k_donor_1.fcs", "rawEvents": 1024, "postFilterEvents": 1000},
-  {"filename": "omip69_1k_donor_2.fcs", "rawEvents": 1018, "postFilterEvents": 1000},
-  {"filename": "omip69_1k_donor_3.fcs", "rawEvents": 1031, "postFilterEvents": 1000},
-  {"filename": "omip69_1k_donor_4.fcs", "rawEvents": 1009, "postFilterEvents": 1000}
-]

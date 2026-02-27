@@ -801,17 +801,18 @@ class AppStateProvider extends ChangeNotifier {
         },
         onError: (error, reason) {
           _currentRunningStep = '';
+          _advanceError = reason.isNotEmpty ? '$error: $reason' : error;
           _finishRun(workflowId, name, 'error');
         },
       );
     } catch (e) {
       print('Workflow execution error: $e');
+      _advanceError = e.toString();
       if (_pendingRunId != null) {
         _finishRun(_pendingRunId!, name, 'error');
       } else {
         _appState = AppState.waiting;
         _currentRunningStep = '';
-        _error = e.toString();
         notifyListeners();
       }
     }

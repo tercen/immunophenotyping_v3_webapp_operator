@@ -800,6 +800,9 @@ class TercenWorkflowService implements DataService {
             final failed = event.state as FailedState;
             throw Exception(
                 'Step "$stepName" failed: ${failed.error}: ${failed.reason}');
+          } else if (event.state is CanceledState) {
+            _runningTaskId = null;
+            throw Exception('Step "$stepName" was canceled');
           }
         }
       }
