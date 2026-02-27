@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:sci_tercen_client/sci_client_service_factory.dart';
 import 'package:sci_tercen_client/sci_client.dart' hide ServiceFactory;
@@ -296,9 +297,17 @@ class TercenWorkflowService implements DataService {
   @override
   Future<List<String>> getTeams() async {
     try {
-      // useFactory: true gives the concrete subclass, which has teamAcl.aces
-      // populated with the teams this user belongs to.
-      final user = await _factory.userService.get('', useFactory: true);
+      // The username must be passed explicitly — get('') sends id= (empty)
+      // which returns 404. Extract the username from the Tercen JWT token
+      // that is always present in the URL query string.
+      final username = _usernameFromToken();
+      if (username == null || username.isEmpty) {
+        throw StateError('Could not determine username from URL token');
+      }
+
+      // useFactory: true gives the concrete subclass with teamAcl populated.
+      final user =
+          await _factory.userService.get(username, useFactory: true);
 
       final teamNames = <String>[];
       for (final ace in user.teamAcl.aces) {
@@ -309,13 +318,30 @@ class TercenWorkflowService implements DataService {
 
       // Sort alphabetically, then put the user's own name first (home team).
       teamNames.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-      teamNames.remove(user.name);
-      teamNames.insert(0, user.name);
+      teamNames.remove(username);
+      teamNames.insert(0, username);
 
       return teamNames;
     } catch (e) {
       print('Tercen error in getTeams: $e');
       rethrow;
+    }
+  }
+
+  /// Parse the Tercen JWT token from the URL and return the username (`u`
+  /// field inside the `data` claim).  Returns null if anything fails.
+  String? _usernameFromToken() {
+    try {
+      final token = Uri.base.queryParameters['token'];
+      if (token == null) return null;
+      final parts = token.split('.');
+      if (parts.length != 3) return null;
+      final payload =
+          utf8.decode(base64Url.decode(base64Url.normalize(parts[1])));
+      final claims = jsonDecode(payload) as Map<String, dynamic>;
+      return (claims['data'] as Map<String, dynamic>?)?['u'] as String?;
+    } catch (_) {
+      return null;
     }
   }
 
