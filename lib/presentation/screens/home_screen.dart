@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:web/web.dart' as web;
 import '../providers/app_state_provider.dart';
 import '../widgets/app_shell.dart';
 import '../widgets/left_panel/left_panel.dart';
@@ -8,6 +9,7 @@ import '../widgets/left_panel/current_run_section.dart';
 import '../widgets/left_panel/history_section.dart';
 import '../widgets/left_panel/info_section.dart';
 import '../widgets/content_panel/content_panel.dart';
+import '../../di/service_locator.dart';
 
 /// Home screen: assembles the Type 3 three-panel layout for
 /// Flow Immunophenotyping - PhenoGraph.
@@ -76,40 +78,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _handleExit(BuildContext context, AppStateProvider provider) {
-    // Before project creation (stage 0), exit immediately
-    if (provider.currentStage == 0) {
-      _doExit();
-      return;
-    }
-    // Otherwise confirm
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Exit?'),
-        content: const Text(
-          'Are you sure you want to exit? You will return to the Tercen project screen.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              _doExit();
-            },
-            child: const Text('Exit'),
-          ),
-        ],
-      ),
-    );
+    _doExit(provider);
   }
 
-  void _doExit() {
-    // In mock mode, just print. In real Tercen mode this would navigate
-    // back to the project screen or close the webapp.
-    debugPrint('EXIT: Would navigate to Tercen project screen');
+  void _doExit(AppStateProvider provider) {
+    final projectId = serviceLocator<String>(instanceName: 'projectId');
+
+    if (projectId.isEmpty) {
+      // No project created yet — go back to wherever the user came from.
+      web.window.history.back();
+    } else {
+      // Project exists — navigate to its Tercen project screen.
+      final teamId = Uri.base.queryParameters['teamId'] ?? '';
+      final base = Uri.base;
+      final projectUrl =
+          '${base.scheme}://${base.host}/$teamId/p/$projectId';
+      web.window.location.href = projectUrl;
+    }
   }
 
   void _confirmDelete(
