@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'package:sci_tercen_client/sci_client_service_factory.dart';
 import 'package:sci_tercen_client/sci_client.dart' hide ServiceFactory;
@@ -16,6 +17,12 @@ const _templateWorkflowVersion = '2.3.0';
 
 /// Fallback: display name used only for error messages.
 const _templateWorkflowName = 'Flow Immunophenotyping - PhenoGraph';
+
+/// Stable TableStep IDs for the immunophenotyping template (v2.3.0).
+/// These IDs are preserved when copyApp() clones the workflow, so we
+/// match by ID rather than by name (names include the original filename).
+const _fcsTableStepId = '8346b5cb-5e4d-41ae-be35-313abe9500d0';
+const _annotationTableStepId = '15594fff-3f9f-4419-8d75-560034bc02e7';
 
 /// Real Tercen data service for Flow E (Type 3 workflow manager).
 ///
@@ -522,34 +529,27 @@ class TercenWorkflowService implements DataService {
     try {
       final workflow = await _factory.workflowService.get(workflowId);
 
-      // DEBUG: show step structure so we can identify the correct TableStep
-      // for file input (remove once step names are confirmed).
-      print('=== Workflow steps in $workflowId ===');
+      // 1. Connect uploaded files to their TableStep inputs.
+      //    The template's TableSteps have a UnionRelation pointing at demo
+      //    data.  Replace each with a RenameRelation→InMemoryRelation that
+      //    carries the user's uploaded file document ID — the same pattern
+      //    used by webapp_lib's WorkflowRunner.addDocument().
       for (final step in workflow.steps) {
-        if (step is TableStep) {
-          print('  TableStep: "${step.name}" id=${step.id}'
-              ' relation=${step.model.relation.kind}');
-        } else if (step is DataStep) {
-          final props =
-              step.model.operatorSettings.operatorRef.propertyValues;
-          final propNames = props.map((p) => p.name).join(', ');
-          print('  DataStep:  "${step.name}" id=${step.id}'
-              ' props=[$propNames]');
-        } else {
-          print('  Other(${step.kind}): "${step.name}" id=${step.id}');
+        if (step is! TableStep) continue;
+        if (step.id == _fcsTableStepId) {
+          step.model.relation = _createDocumentRelation(fcsFileDocId);
+          step.state.taskState = DoneState();
+        } else if (step.id == _annotationTableStepId) {
+          step.model.relation = _createDocumentRelation(annotationFileDocId);
+          step.state.taskState = DoneState();
         }
       }
-      print('=== links ===');
-      for (final link in workflow.links) {
-        print('  ${link.outputId} -> ${link.inputId}');
-      }
-      print('=== end ===');
 
+      // 2. Set algorithmic parameters on DataStep operator properties.
       for (final step in workflow.steps) {
         if (step is! DataStep) continue;
         final props =
             step.model.operatorSettings.operatorRef.propertyValues;
-
         for (final pv in props) {
           switch (pv.name) {
             case 'k':
@@ -567,11 +567,6 @@ class TercenWorkflowService implements DataService {
             case 'channels':
             case 'selected_channels':
               pv.value = selectedChannels.join(',');
-            case 'fcs_file':
-            case 'input_file':
-              pv.value = fcsFileDocId;
-            case 'annotation_file':
-              pv.value = annotationFileDocId;
           }
         }
       }
@@ -581,6 +576,55 @@ class TercenWorkflowService implements DataService {
       print('Tercen error in setWorkflowProperties: $e');
       rethrow;
     }
+  }
+
+  /// Creates a RenameRelation wrapping a 1-row InMemoryRelation that carries
+  /// a Tercen file document ID.  This is how Tercen connects uploaded files
+  /// to TableStep inputs — matches webapp_lib WorkflowRunner.createDocumentRelation().
+  ///
+  /// The table has two columns:
+  ///   "documentId"  — a unique row-key (opaque to Tercen, just needs to be unique)
+  ///   ".documentId" — the actual Tercen FileDocument ID the engine will load
+  RenameRelation _createDocumentRelation(String documentId) {
+    final rowKey = _newId();
+    final relId = _newId();
+
+    final col1 = Column()
+      ..name = 'documentId'
+      ..type = 'string'
+      ..id = 'documentId'
+      ..nRows = 1
+      ..size = -1
+      ..values = [rowKey];
+
+    final col2 = Column()
+      ..name = '.documentId'
+      ..type = 'string'
+      ..id = '.documentId'
+      ..nRows = 1
+      ..size = -1
+      ..values = [documentId];
+
+    final tbl = Table()..nRows = 1;
+    tbl.columns.addAll([col1, col2]);
+
+    final inMemRel = InMemoryRelation()
+      ..id = relId
+      ..inMemoryTable = tbl;
+
+    final rr = RenameRelation()
+      ..id = 'rename_$relId'
+      ..relation = inMemRel;
+    rr.inNames.addAll(['documentId', '.documentId']);
+    rr.outNames.addAll(['documentId', '.documentId']);
+    return rr;
+  }
+
+  /// Generates a unique opaque ID (hex timestamp + random suffix).
+  String _newId() {
+    final t = DateTime.now().microsecondsSinceEpoch;
+    final r = math.Random().nextInt(0x3fffffff);
+    return '${t.toRadixString(16)}${r.toRadixString(16).padLeft(8, '0')}';
   }
 
   // =============================================
