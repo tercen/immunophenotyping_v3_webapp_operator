@@ -54,18 +54,21 @@ class HeaderPanel extends StatelessWidget {
         color: bgColor,
         border: Border(bottom: BorderSide(color: borderColor)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+      // Left padding aligns action buttons with the content margin below.
+      // Right padding mirrors the standard horizontal margin.
+      padding: const EdgeInsets.only(
+        left: AppSpacing.md + 32 + AppSpacing.sm,
+        right: AppSpacing.md,
+      ),
       child: Row(
         children: [
-          // Push everything to the right
-          const Spacer(),
-          // Action buttons (dynamic, right-aligned)
+          // Action buttons — left-aligned to content margin
           ..._buildActions(provider, isDark),
-          // Divider separating actions from exit
-          const SizedBox(width: AppSpacing.md),
+          // Spacer fills all available width (responsive to screen size)
+          const Spacer(),
+          // Divider + Exit — pinned to right edge
           Container(width: 1, height: 20, color: borderColor),
           const SizedBox(width: AppSpacing.sm),
-          // Exit button — always far right
           IconButton(
             onPressed: onExit,
             icon: Icon(Icons.close, size: 18, color: isDark ? AppColorsDark.textSecondary : AppColors.textSecondary),
