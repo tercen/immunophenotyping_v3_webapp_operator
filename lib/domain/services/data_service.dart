@@ -85,4 +85,11 @@ abstract class DataService {
 
   /// Get the total number of steps in the workflow template.
   Future<int> getWorkflowStepCount(String workflowId) async => 0;
+
+  /// Run a single named step in the workflow.
+  /// The step is reset and re-run. Throws on step failure or if step not found.
+  Future<void> runWorkflowStep(String workflowId, String stepName) async {}
+
+  /// Read FCS channels from the "Read FCS" step output of a workflow.
+  Future<List<FcsChannel>> getChannelsFromWorkflow(String workflowId) async => [];
 }

@@ -41,23 +41,34 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _onProviderChanged() {
-    final error = _provider?.projectCreationError;
-    if (error != null && mounted) {
+    final projectError = _provider?.projectCreationError;
+    if (projectError != null && mounted) {
       _provider!.clearProjectCreationError();
-      showDialog(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Project Creation Failed'),
-          content: Text(error),
-          actions: [
-            FilledButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
-      );
+      _showErrorDialog('Project Creation Failed', projectError);
+      return;
     }
+
+    final advanceError = _provider?.advanceError;
+    if (advanceError != null && mounted) {
+      _provider!.clearAdvanceError();
+      _showErrorDialog('Processing Failed', advanceError);
+    }
+  }
+
+  void _showErrorDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override

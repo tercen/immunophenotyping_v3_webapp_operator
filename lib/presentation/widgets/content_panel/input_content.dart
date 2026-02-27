@@ -26,6 +26,11 @@ class InputContent extends StatelessWidget {
     final textPrimary =
         isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
 
+    final primaryColor =
+        isDark ? AppColorsDark.primary : AppColors.primary;
+    final labelColor =
+        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
+
     return Container(
       color: bgColor,
       child: Align(
@@ -44,6 +49,19 @@ class InputContent extends StatelessWidget {
                 provider.headerHeading,
                 style: AppTextStyles.h1.copyWith(color: textPrimary),
               ),
+              // Loading indicator shown during Stage 1/2 async advance
+              if (provider.isLoading) ...[
+                const SizedBox(height: AppSpacing.sm),
+                LinearProgressIndicator(color: primaryColor),
+                if (provider.currentRunningStep.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.xs),
+                  Text(
+                    provider.currentRunningStep,
+                    style:
+                        AppTextStyles.bodySmall.copyWith(color: labelColor),
+                  ),
+                ],
+              ],
               const SizedBox(height: AppSpacing.lg),
               switch (provider.currentStage) {
                 0 => _Stage0ProjectSetup(isDark: isDark),
@@ -220,10 +238,6 @@ class _Stage2UploadAnnotation extends StatelessWidget {
     final provider = context.watch<AppStateProvider>();
     final labelColor =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-    final textPrimary =
-        isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
-    final successColor = isDark ? AppColorsDark.success : AppColors.success;
-    final errorColor = isDark ? AppColorsDark.error : AppColors.error;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,40 +253,6 @@ class _Stage2UploadAnnotation extends StatelessWidget {
           onFilesChanged: (files) =>
               provider.updateAnnotationUploadFromFiles(files),
         ),
-        // Show real parsed data after upload
-        if (provider.annotationUploaded) ...[
-          const SizedBox(height: AppSpacing.sm),
-          if (provider.annotationCrossCheckPassed) ...[
-            Row(
-              children: [
-                Icon(Icons.check_circle, size: 14, color: successColor),
-                const SizedBox(width: AppSpacing.xs),
-                Text(
-                  '${provider.annotationSampleCount} sample${provider.annotationSampleCount == 1 ? '' : 's'} found',
-                  style: AppTextStyles.bodySmall.copyWith(color: textPrimary),
-                ),
-              ],
-            ),
-            if (provider.annotationConditions.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                'Conditions: ${provider.annotationConditions.join(', ')}',
-                style: AppTextStyles.bodySmall.copyWith(color: labelColor),
-              ),
-            ],
-          ] else ...[
-            Row(
-              children: [
-                Icon(Icons.warning_amber, size: 14, color: errorColor),
-                const SizedBox(width: AppSpacing.xs),
-                Text(
-                  'CSV appears empty or invalid — no data rows found.',
-                  style: AppTextStyles.bodySmall.copyWith(color: errorColor),
-                ),
-              ],
-            ),
-          ],
-        ],
       ],
     );
   }

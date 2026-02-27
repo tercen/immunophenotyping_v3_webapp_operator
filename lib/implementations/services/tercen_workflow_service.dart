@@ -578,6 +578,73 @@ class TercenWorkflowService implements DataService {
   }
 
   // =============================================
+  // Phase 3: Single-step execution
+  // =============================================
+
+  @override
+  Future<void> runWorkflowStep(String workflowId, String stepName) async {
+    try {
+      final workflow = await _factory.workflowService.get(workflowId);
+
+      // Find the step by name
+      String? stepId;
+      for (final step in workflow.steps) {
+        if (step.name == stepName) {
+          stepId = step.id;
+          break;
+        }
+      }
+      if (stepId == null) {
+        throw StateError('Step "$stepName" not found in workflow $workflowId');
+      }
+
+      final task = RunWorkflowTask()
+        ..projectId = _projectId
+        ..workflowId = workflow.id
+        ..workflowRev = workflow.rev;
+
+      // Reset and run only this step
+      task.stepsToRun.add(stepId);
+      task.stepsToReset.add(stepId);
+
+      final created =
+          await _factory.taskService.create(task) as RunWorkflowTask;
+      _runningTaskId = created.id;
+      await _factory.taskService.runTask(created.id);
+
+      await for (final event
+          in _factory.eventService.listenTaskChannel(created.id, true)) {
+        if (event is TaskStateEvent) {
+          if (event.state is DoneState) {
+            _runningTaskId = null;
+            break;
+          } else if (event.state is FailedState) {
+            _runningTaskId = null;
+            final failed = event.state as FailedState;
+            throw Exception(
+                'Step "$stepName" failed: ${failed.error}: ${failed.reason}');
+          }
+        }
+      }
+    } catch (e) {
+      _runningTaskId = null;
+      print('Tercen error in runWorkflowStep($stepName): $e');
+      rethrow;
+    }
+  }
+
+  @override
+  Future<List<FcsChannel>> getChannelsFromWorkflow(String workflowId) async {
+    try {
+      final wf = await _factory.workflowService.get(workflowId);
+      return _readChannelReference(wf);
+    } catch (e) {
+      print('Tercen error in getChannelsFromWorkflow: $e');
+      return [];
+    }
+  }
+
+  // =============================================
   // Step output reading helpers
   // =============================================
 

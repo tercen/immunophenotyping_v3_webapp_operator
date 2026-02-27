@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../di/service_locator.dart';
@@ -147,6 +146,13 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  String? _advanceError;
+  String? get advanceError => _advanceError;
+  void clearAdvanceError() {
+    _advanceError = null;
+    notifyListeners();
+  }
+
   /// Generates the default project name: Flow Immunophenotyping - YYYY-MM-DD_HH_mm_SS-username
   String _generateDefaultProjectName(String username) {
     final now = DateTime.now();
@@ -196,6 +202,12 @@ class AppStateProvider extends ChangeNotifier {
     _fcsUploaded = false;
     _fcsBytes = null;
     _fcsUploadFilename = null;
+    // Clear preflight state — FCS file removed, must re-run Stage 1 advance
+    _clonedWorkflowId = null;
+    _fcsFileDocId = null;
+    _annotationFileDocId = null;
+    _allChannels = [];
+    _selectedChannels = {};
     notifyListeners();
   }
 
@@ -231,6 +243,7 @@ class AppStateProvider extends ChangeNotifier {
     _annotationUploaded = false;
     _annotationBytes = null;
     _annotationUploadFilename = null;
+    _annotationFileDocId = null;
     notifyListeners();
   }
 
@@ -244,6 +257,13 @@ class AppStateProvider extends ChangeNotifier {
   Uint8List? _annotationBytes;
   Uint8List? get annotationBytes => _annotationBytes;
   String? _annotationUploadFilename;
+
+  // =============================================
+  // Tercen upload artefacts (set during Stage 1/2 advance)
+  // =============================================
+  String? _clonedWorkflowId;
+  String? _fcsFileDocId;
+  String? _annotationFileDocId;
 
   /// Bridge: update FCS upload state from UploadZone file list.
   void updateFcsUploadFromFiles(List<UploadFile> files) {
@@ -260,8 +280,8 @@ class AppStateProvider extends ChangeNotifier {
         : '${successFiles.length} files';
     _fcsFileSize = successFiles.fold(0, (sum, f) => sum + f.fileSize);
     _fcsFileCount = successFiles.length;
-    _fcsChannelCount = 0; // determined after workflow runs
-    _fcsTotalEvents = 0;  // determined after workflow runs
+    _fcsChannelCount = 0; // populated after "Read FCS" step runs
+    _fcsTotalEvents = 0;  // populated after "Read FCS" step runs
     _fcsUploaded = true;
 
     // Capture bytes for Tercen upload
@@ -275,6 +295,8 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   /// Bridge: update annotation upload state from UploadZone file list.
+  /// Bytes are stored for Tercen upload; metadata is populated after the
+  /// "Input Annotation" workflow step runs (in _advanceFromStage2).
   void updateAnnotationUploadFromFiles(List<UploadFile> files) {
     final successFiles =
         files.where((f) => f.status == UploadFileStatus.success).toList();
@@ -287,20 +309,12 @@ class AppStateProvider extends ChangeNotifier {
     _annotationFilename = successFiles.first.filename;
     _annotationUploaded = true;
 
-    // Capture bytes for Tercen upload and parse CSV for real metadata
+    // Capture bytes for Tercen upload
     final firstWithBytes =
         successFiles.where((f) => f.bytes != null).firstOrNull;
     if (firstWithBytes != null) {
       _annotationBytes = firstWithBytes.bytes;
       _annotationUploadFilename = firstWithBytes.filename;
-      final (count, conditions) = _parseCsvAnnotation(firstWithBytes.bytes!);
-      _annotationSampleCount = count;
-      _annotationConditions = conditions;
-      _annotationCrossCheckPassed = count > 0;
-    } else {
-      _annotationSampleCount = 0;
-      _annotationConditions = [];
-      _annotationCrossCheckPassed = false;
     }
     notifyListeners();
   }
@@ -419,8 +433,9 @@ class AppStateProvider extends ChangeNotifier {
       summary['FCS file'] = '$_fcsFilename ($_fcsFileCount $fileWord$chPart)';
     }
     if (_annotationUploaded) {
-      summary['Annotation'] =
-          '$_annotationFilename ($_annotationSampleCount samples)';
+      final samplePart =
+          _annotationSampleCount > 0 ? ' ($_annotationSampleCount samples)' : '';
+      summary['Annotation'] = '$_annotationFilename$samplePart';
     }
     if (_selectedChannels.isNotEmpty && _currentStage >= 3) {
       summary['Channels'] =
@@ -506,10 +521,11 @@ class AppStateProvider extends ChangeNotifier {
       case 1:
         return _fcsUploaded;
       case 2:
-        return _annotationUploaded && _annotationCrossCheckPassed;
+        // File locally read is sufficient — upload + validation happen on Continue
+        return _annotationUploaded;
       case 3:
         // Allow proceeding when no channels are loaded yet (first run uses all).
-        // Once channels are populated from a prior run, require at least one selected.
+        // Once channels are populated from the Read FCS step, require at least one.
         return _allChannels.isEmpty || selectedChannelCount > 0;
       case 4:
         return _runName.isNotEmpty;
@@ -535,9 +551,18 @@ class AppStateProvider extends ChangeNotifier {
 
   /// Advance to the next stage, or start the run if at stage 4.
   void advanceStage() {
+    if (_isLoading) return; // Prevent re-entry during async operations
+
     if (_currentStage == 0) {
-      // Stage 0 → 1: create the project first
       _createProjectAndAdvance();
+      return;
+    }
+    if (_currentStage == 1) {
+      _advanceFromStage1();
+      return;
+    }
+    if (_currentStage == 2) {
+      _advanceFromStage2();
       return;
     }
     if (_currentStage < 4) {
@@ -576,7 +601,129 @@ class AppStateProvider extends ChangeNotifier {
     navigateToStage(1);
   }
 
-  /// Start a run: clone template, upload files, set properties, execute workflow.
+  /// Stage 1 Continue: upload FCS → clone workflow → run "Read FCS" step → extract channels.
+  Future<void> _advanceFromStage1() async {
+    if (_fcsBytes == null) return;
+
+    _isLoading = true;
+    _currentRunningStep = 'Uploading FCS data...';
+    _error = null;
+    notifyListeners();
+
+    try {
+      // 1. Upload FCS file to Tercen
+      _fcsFileDocId = await _dataService.uploadFile(
+        _fcsUploadFilename ?? _fcsFilename ?? 'fcs_data.zip',
+        _fcsBytes!,
+        _projectId,
+      );
+
+      // 2. Clone workflow template
+      _currentRunningStep = 'Cloning workflow template...';
+      notifyListeners();
+      _clonedWorkflowId = await _dataService.cloneWorkflowTemplate(_projectId);
+
+      // 3. Set FCS file property on the cloned workflow
+      _currentRunningStep = 'Configuring workflow...';
+      notifyListeners();
+      await _dataService.setWorkflowProperties(
+        _clonedWorkflowId!,
+        selectedChannels: const [],
+        maxEventsPerFile: _maxEventsPerFile,
+        phenographK: _phenographK,
+        umapNNeighbors: _umapNNeighbors,
+        umapMinDist: _umapMinDist,
+        randomSeed: _randomSeed,
+        fcsFileDocId: _fcsFileDocId!,
+        annotationFileDocId: '',
+      );
+
+      // 4. Run the "Read FCS" step to extract channel information
+      _currentRunningStep = 'Reading FCS metadata...';
+      notifyListeners();
+      await _dataService.runWorkflowStep(_clonedWorkflowId!, 'Read FCS');
+
+      // 5. Extract channels from the "Read FCS" step output
+      _currentRunningStep = 'Extracting channels...';
+      notifyListeners();
+      final channels =
+          await _dataService.getChannelsFromWorkflow(_clonedWorkflowId!);
+      if (channels.isNotEmpty) {
+        _allChannels = channels;
+        _fcsChannelCount = channels.length;
+        _selectedChannels = {
+          for (final ch in channels)
+            if (!ch.isQc) ch.name: true else ch.name: false,
+        };
+      }
+
+      _isLoading = false;
+      _currentRunningStep = '';
+      navigateToStage(2);
+    } catch (e) {
+      _isLoading = false;
+      _currentRunningStep = '';
+      _advanceError = 'Failed to process FCS file: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Stage 2 Continue: upload annotation → run "Input Annotation" step.
+  Future<void> _advanceFromStage2() async {
+    if (_annotationBytes == null) return;
+    if (_clonedWorkflowId == null) {
+      _advanceError = 'Workflow not initialised. Please go back to Stage 1.';
+      notifyListeners();
+      return;
+    }
+
+    _isLoading = true;
+    _currentRunningStep = 'Uploading annotation...';
+    _error = null;
+    notifyListeners();
+
+    try {
+      // 1. Upload annotation file to Tercen
+      _annotationFileDocId = await _dataService.uploadFile(
+        _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
+        _annotationBytes!,
+        _projectId,
+      );
+
+      // 2. Update the workflow with the annotation file property
+      _currentRunningStep = 'Configuring annotation...';
+      notifyListeners();
+      await _dataService.setWorkflowProperties(
+        _clonedWorkflowId!,
+        selectedChannels: const [],
+        maxEventsPerFile: _maxEventsPerFile,
+        phenographK: _phenographK,
+        umapNNeighbors: _umapNNeighbors,
+        umapMinDist: _umapMinDist,
+        randomSeed: _randomSeed,
+        fcsFileDocId: _fcsFileDocId ?? '',
+        annotationFileDocId: _annotationFileDocId!,
+      );
+
+      // 3. Run the "Input Annotation" step
+      _currentRunningStep = 'Processing annotation...';
+      notifyListeners();
+      await _dataService.runWorkflowStep(
+          _clonedWorkflowId!, 'Input Annotation');
+
+      _annotationCrossCheckPassed = true;
+      _isLoading = false;
+      _currentRunningStep = '';
+      navigateToStage(3);
+    } catch (e) {
+      _isLoading = false;
+      _currentRunningStep = '';
+      _advanceError = 'Failed to process annotation: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Start a run: configure and execute the full workflow.
   void startRun() {
     final name = _runName.isNotEmpty ? _runName : defaultRunName;
 
@@ -590,45 +737,21 @@ class AppStateProvider extends ChangeNotifier {
     _executeWorkflow(name);
   }
 
-  /// Async workflow execution — clone, upload, configure, run.
+  /// Async workflow execution — configure and run the pre-cloned workflow.
   Future<void> _executeWorkflow(String name) async {
     try {
-      // 1. Clone workflow template
-      _currentRunningStep = 'Cloning workflow template...';
+      // 1. Reuse the pre-cloned workflow (from Stage 1 advance), or clone if needed
+      _currentRunningStep = 'Preparing workflow...';
       notifyListeners();
       final workflowId =
-          await _dataService.cloneWorkflowTemplate(_projectId);
+          _clonedWorkflowId ?? await _dataService.cloneWorkflowTemplate(_projectId);
       _pendingRunId = workflowId;
 
-      // 2. Get total step count for progress
+      // 2. Get total step count for progress display
       _totalSteps = await _dataService.getWorkflowStepCount(workflowId);
       if (_totalSteps == 0) _totalSteps = 31; // fallback
 
-      // 3. Upload FCS file
-      String fcsFileDocId = '';
-      if (_fcsBytes != null) {
-        _currentRunningStep = 'Uploading FCS data...';
-        notifyListeners();
-        fcsFileDocId = await _dataService.uploadFile(
-          _fcsUploadFilename ?? _fcsFilename ?? 'fcs_data.zip',
-          _fcsBytes!,
-          _projectId,
-        );
-      }
-
-      // 4. Upload annotation file
-      String annotationFileDocId = '';
-      if (_annotationBytes != null) {
-        _currentRunningStep = 'Uploading annotation...';
-        notifyListeners();
-        annotationFileDocId = await _dataService.uploadFile(
-          _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
-          _annotationBytes!,
-          _projectId,
-        );
-      }
-
-      // 5. Set workflow properties
+      // 3. Set all workflow properties (channels, analysis params + uploaded file IDs)
       _currentRunningStep = 'Configuring workflow...';
       notifyListeners();
       final selected = _selectedChannels.entries
@@ -643,11 +766,11 @@ class AppStateProvider extends ChangeNotifier {
         umapNNeighbors: _umapNNeighbors,
         umapMinDist: _umapMinDist,
         randomSeed: _randomSeed,
-        fcsFileDocId: fcsFileDocId,
-        annotationFileDocId: annotationFileDocId,
+        fcsFileDocId: _fcsFileDocId ?? '',
+        annotationFileDocId: _annotationFileDocId ?? '',
       );
 
-      // 6. Run workflow with progress callbacks
+      // 4. Run all workflow steps with progress callbacks
       _currentRunningStep = 'Starting execution...';
       notifyListeners();
       await _dataService.runWorkflow(
@@ -725,7 +848,7 @@ class AppStateProvider extends ChangeNotifier {
   Future<void> _loadResults(String runId) async {
     try {
       _currentResult = await _dataService.getResults(runId);
-      // After the first run completes, load channels from the workflow output
+      // After the first run completes, reload channels from the workflow output
       // so that re-runs can show real channel selection in Stage 3.
       if (_allChannels.isEmpty) {
         try {
@@ -801,6 +924,11 @@ class AppStateProvider extends ChangeNotifier {
     _annotationBytes = null;
     _annotationUploadFilename = null;
 
+    // Clear Tercen upload artefacts
+    _clonedWorkflowId = null;
+    _fcsFileDocId = null;
+    _annotationFileDocId = null;
+
     // Reset channel selection to defaults
     for (final ch in _allChannels) {
       _selectedChannels[ch.name] = !ch.isQc;
@@ -840,15 +968,15 @@ class AppStateProvider extends ChangeNotifier {
     final run = _runHistory.firstWhere((r) => r.id == runId);
     final s = run.settings;
 
-    // Pre-fill FCS upload
+    // Pre-fill FCS upload display info (no bytes — user must re-upload)
     _fcsFilename = s['fcsFilename'] as String?;
     _fcsFileCount = s['fcsFileCount'] as int? ?? 0;
     _fcsChannelCount = s['totalChannels'] as int? ?? 0;
-    _fcsTotalEvents = 4082;
-    _fcsFileSize = 2457600;
+    _fcsTotalEvents = 0;
+    _fcsFileSize = 0;
     _fcsUploaded = _fcsFilename != null && _fcsFilename!.isNotEmpty;
 
-    // Pre-fill annotation upload
+    // Pre-fill annotation display info (no bytes — user must re-upload)
     _annotationFilename = s['annotationFilename'] as String?;
     _annotationSampleCount = s['sampleCount'] as int? ?? 0;
     _annotationConditions =
@@ -856,6 +984,15 @@ class AppStateProvider extends ChangeNotifier {
     _annotationCrossCheckPassed = true;
     _annotationUploaded =
         _annotationFilename != null && _annotationFilename!.isNotEmpty;
+
+    // Clear bytes and Tercen artefacts — user must re-upload files
+    _fcsBytes = null;
+    _fcsUploadFilename = null;
+    _annotationBytes = null;
+    _annotationUploadFilename = null;
+    _clonedWorkflowId = null;
+    _fcsFileDocId = null;
+    _annotationFileDocId = null;
 
     // Pre-fill channel selection
     final selectedCount = s['selectedChannelCount'] as int? ?? 30;
@@ -900,72 +1037,4 @@ class AppStateProvider extends ChangeNotifier {
       notifyListeners();
     }
   }
-}
-
-// =============================================================================
-// CSV annotation parsing helpers (top-level, file-private)
-// =============================================================================
-
-/// Parse annotation CSV bytes → (sampleCount, conditions).
-/// Looks for a 'condition', 'group', or 'sample_type' column for conditions.
-/// Returns (0, []) on any parse failure.
-(int, List<String>) _parseCsvAnnotation(Uint8List bytes) {
-  try {
-    final text = utf8.decode(bytes, allowMalformed: true);
-    final lines = text
-        .split('\n')
-        .map((l) => l.replaceAll('\r', '').trim())
-        .where((l) => l.isNotEmpty)
-        .toList();
-    if (lines.length < 2) return (0, []);
-
-    final headers =
-        _splitCsvRow(lines[0]).map((h) => h.toLowerCase()).toList();
-    final conditionIdx = headers.indexWhere((h) =>
-        h == 'condition' ||
-        h == 'group' ||
-        h == 'sample_type' ||
-        h == 'class');
-
-    final dataRows = lines.sublist(1);
-    final sampleCount = dataRows.length;
-
-    final conditions = <String>[];
-    if (conditionIdx >= 0) {
-      final seen = <String>{};
-      for (final row in dataRows) {
-        final cols = _splitCsvRow(row);
-        if (conditionIdx < cols.length) {
-          final cond = cols[conditionIdx].trim();
-          if (cond.isNotEmpty && seen.add(cond)) {
-            conditions.add(cond);
-          }
-        }
-      }
-      conditions.sort();
-    }
-    return (sampleCount, conditions);
-  } catch (_) {
-    return (0, []);
-  }
-}
-
-/// Split a single CSV row respecting double-quoted fields.
-List<String> _splitCsvRow(String row) {
-  final result = <String>[];
-  final buf = StringBuffer();
-  bool inQuotes = false;
-  for (var i = 0; i < row.length; i++) {
-    final c = row[i];
-    if (c == '"') {
-      inQuotes = !inQuotes;
-    } else if (c == ',' && !inQuotes) {
-      result.add(buf.toString().trim());
-      buf.clear();
-    } else {
-      buf.write(c);
-    }
-  }
-  result.add(buf.toString().trim());
-  return result;
 }
