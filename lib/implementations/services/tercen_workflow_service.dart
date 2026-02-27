@@ -443,8 +443,16 @@ class TercenWorkflowService implements DataService {
       }).firstOrNull;
 
       if (match != null) {
-        _templateWorkflowId = match.id;
-        return _templateWorkflowId!;
+        // V2 resolves the Document ID to a full Workflow via workflowService.list()
+        // before passing to copyApp. This resolution step is required.
+        print('Library match: "${match.name}" id=${match.id}');
+        final resolved = await _factory.workflowService.list([match.id]);
+        if (resolved.isNotEmpty) {
+          _templateWorkflowId = resolved.first.id;
+          print('Resolved workflow id: $_templateWorkflowId');
+          return _templateWorkflowId!;
+        }
+        print('workflowService.list returned empty for id=${match.id}');
       }
     } catch (e) {
       print('Library search failed (will try project fallback): $e');
