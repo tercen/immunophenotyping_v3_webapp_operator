@@ -536,10 +536,10 @@ class TercenWorkflowService implements DataService {
       //    used by webapp_lib's WorkflowRunner.addDocument().
       for (final step in workflow.steps) {
         if (step is! TableStep) continue;
-        if (step.id == _fcsTableStepId) {
+        if (step.id == _fcsTableStepId && fcsFileDocId.isNotEmpty) {
           step.model.relation = _createDocumentRelation(fcsFileDocId);
           step.state.taskState = DoneState();
-        } else if (step.id == _annotationTableStepId) {
+        } else if (step.id == _annotationTableStepId && annotationFileDocId.isNotEmpty) {
           step.model.relation = _createDocumentRelation(annotationFileDocId);
           step.state.taskState = DoneState();
         }
