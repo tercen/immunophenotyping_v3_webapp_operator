@@ -879,21 +879,41 @@ class TercenWorkflowService implements DataService {
     return null;
   }
 
-  /// Walk the relation tree and extract simple/reference relations (schema IDs).
+  /// Walk the relation tree and extract leaf relations that carry schema IDs
+  /// (SimpleRelation, ReferenceRelation, InMemoryRelation).
   List<Relation> _getSimpleRelations(Relation relation) {
     final result = <Relation>[];
     void walk(Relation? r) {
       if (r == null) return;
-      if (r is SimpleRelation || r is ReferenceRelation) {
+      // Leaf nodes — carry a schema/table ID
+      if (r is SimpleRelation || r is ReferenceRelation || r is InMemoryRelation) {
         result.add(r);
-      } else if (r is CompositeRelation) {
+      }
+      // Multi-child containers
+      else if (r is CompositeRelation) {
         walk(r.mainRelation);
         for (final j in r.joinOperators) {
           walk(j.rightRelation);
         }
-      } else if (r is WhereRelation) {
+      } else if (r is UnionRelation) {
+        for (final child in r.relations) {
+          walk(child);
+        }
+      }
+      // Single-child wrappers
+      else if (r is WhereRelation) {
         walk(r.relation);
       } else if (r is RenameRelation) {
+        walk(r.relation);
+      } else if (r is GatherRelation) {
+        walk(r.relation);
+      } else if (r is DistinctRelation) {
+        walk(r.relation);
+      } else if (r is GroupByRelation) {
+        walk(r.relation);
+      } else if (r is RangeRelation) {
+        walk(r.relation);
+      } else if (r is PairwiseRelation) {
         walk(r.relation);
       }
     }

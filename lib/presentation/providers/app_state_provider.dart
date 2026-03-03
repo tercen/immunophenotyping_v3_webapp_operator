@@ -568,10 +568,14 @@ class AppStateProvider extends ChangeNotifier {
       return;
     }
     if (_currentStage == 1) {
+      // Stage 1 Continue: upload FCS file + clone workflow template.
+      // No pipeline steps run yet — just get the file into Tercen.
       _advanceFromStage1();
       return;
     }
     if (_currentStage == 2) {
+      // Stage 2 Continue: upload annotation file, then run both preflight
+      // steps ("Read FCS" + "Input Annotation") and extract channels.
       _advanceFromStage2();
       return;
     }
@@ -611,7 +615,9 @@ class AppStateProvider extends ChangeNotifier {
     navigateToStage(1);
   }
 
-  /// Stage 1 Continue: upload FCS → clone workflow → run "Read FCS" step → extract channels.
+  /// Stage 1 Continue: upload FCS file to Tercen + clone workflow template.
+  /// No pipeline steps run — just get the data into the project so the user
+  /// can proceed to provide the annotation file.
   Future<void> _advanceFromStage1() async {
     if (_fcsBytes == null) return;
 
@@ -628,12 +634,47 @@ class AppStateProvider extends ChangeNotifier {
         _projectId,
       );
 
-      // 2. Clone workflow template
+      // 2. Clone workflow template (needed before we can configure inputs)
       _currentRunningStep = 'Cloning workflow template...';
       notifyListeners();
       _clonedWorkflowId = await _dataService.cloneWorkflowTemplate(_projectId);
 
-      // 3. Set FCS file property on the cloned workflow
+      _isLoading = false;
+      _currentRunningStep = '';
+      navigateToStage(2);
+    } catch (e) {
+      _isLoading = false;
+      _currentRunningStep = '';
+      _advanceError = 'Failed to upload FCS file: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Stage 2 Continue: upload annotation file → configure workflow with both
+  /// file inputs → run preflight steps ("Read FCS" + "Input Annotation") →
+  /// extract channels → advance to Stage 3.
+  Future<void> _advanceFromStage2() async {
+    if (_annotationBytes == null) return;
+    if (_clonedWorkflowId == null || _fcsFileDocId == null) {
+      _advanceError = 'Workflow not initialised. Please go back to Stage 1.';
+      notifyListeners();
+      return;
+    }
+
+    _isLoading = true;
+    _error = null;
+
+    try {
+      // 1. Upload annotation file to Tercen
+      _currentRunningStep = 'Uploading annotation...';
+      notifyListeners();
+      _annotationFileDocId = await _dataService.uploadFile(
+        _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
+        _annotationBytes!,
+        _projectId,
+      );
+
+      // 2. Configure workflow with both file inputs
       _currentRunningStep = 'Configuring workflow...';
       notifyListeners();
       await _dataService.setWorkflowProperties(
@@ -645,13 +686,20 @@ class AppStateProvider extends ChangeNotifier {
         umapMinDist: _umapMinDist,
         randomSeed: _randomSeed,
         fcsFileDocId: _fcsFileDocId!,
-        annotationFileDocId: '',
+        annotationFileDocId: _annotationFileDocId!,
       );
 
-      // 4. Run the "Read FCS" step to extract channel information
+      // 3. Run "Read FCS" preflight step to extract channel information
       _currentRunningStep = 'Reading FCS metadata...';
       notifyListeners();
       await _dataService.runWorkflowStep(_clonedWorkflowId!, 'Read FCS');
+
+      // 4. Run "Input Annotation" preflight step
+      _currentRunningStep = 'Processing annotation...';
+      notifyListeners();
+      await _dataService.runWorkflowStep(
+          _clonedWorkflowId!, 'Input Annotation');
+      _annotationCrossCheckPassed = true;
 
       // 5. Extract channels from the "Read FCS" step output
       _currentRunningStep = 'Extracting channels...';
@@ -669,66 +717,11 @@ class AppStateProvider extends ChangeNotifier {
 
       _isLoading = false;
       _currentRunningStep = '';
-      navigateToStage(2);
-    } catch (e) {
-      _isLoading = false;
-      _currentRunningStep = '';
-      _advanceError = 'Failed to process FCS file: $e';
-      notifyListeners();
-    }
-  }
-
-  /// Stage 2 Continue: upload annotation → run "Input Annotation" step.
-  Future<void> _advanceFromStage2() async {
-    if (_annotationBytes == null) return;
-    if (_clonedWorkflowId == null) {
-      _advanceError = 'Workflow not initialised. Please go back to Stage 1.';
-      notifyListeners();
-      return;
-    }
-
-    _isLoading = true;
-    _currentRunningStep = 'Uploading annotation...';
-    _error = null;
-    notifyListeners();
-
-    try {
-      // 1. Upload annotation file to Tercen
-      _annotationFileDocId = await _dataService.uploadFile(
-        _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
-        _annotationBytes!,
-        _projectId,
-      );
-
-      // 2. Update the workflow with the annotation file property
-      _currentRunningStep = 'Configuring annotation...';
-      notifyListeners();
-      await _dataService.setWorkflowProperties(
-        _clonedWorkflowId!,
-        selectedChannels: const [],
-        maxEventsPerFile: _maxEventsPerFile,
-        phenographK: _phenographK,
-        umapNNeighbors: _umapNNeighbors,
-        umapMinDist: _umapMinDist,
-        randomSeed: _randomSeed,
-        fcsFileDocId: _fcsFileDocId ?? '',
-        annotationFileDocId: _annotationFileDocId!,
-      );
-
-      // 3. Run the "Input Annotation" step
-      _currentRunningStep = 'Processing annotation...';
-      notifyListeners();
-      await _dataService.runWorkflowStep(
-          _clonedWorkflowId!, 'Input Annotation');
-
-      _annotationCrossCheckPassed = true;
-      _isLoading = false;
-      _currentRunningStep = '';
       navigateToStage(3);
     } catch (e) {
       _isLoading = false;
       _currentRunningStep = '';
-      _advanceError = 'Failed to process annotation: $e';
+      _advanceError = 'Failed to process uploaded files: $e';
       notifyListeners();
     }
   }
