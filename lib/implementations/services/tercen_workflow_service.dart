@@ -888,18 +888,39 @@ class TercenWorkflowService implements DataService {
           _factory.eventService.listenTaskChannel(created.id, false);
       await _factory.taskService.runTask(created.id);
 
+      // Track overall workflow progress by counting completed sub-steps.
+      // TaskProgressEvent.actual/total are per-operator values (e.g. "3
+      // of 3 files"), NOT overall. We count sub-task DoneState events
+      // instead, which gives real step-level progress.
+      final totalDataSteps = task.stepsToRun.length;
+      int completedStepCount = 0;
+      final completedTaskIds = <String>{};
+      String currentStepMessage = '';
+
+      // Report initial progress (0 of N)
+      onProgress('Starting...', 0, totalDataSteps);
+
       // Phase 1: Listen to progress events via WebSocket.
       // Only break when the RunWorkflowTask itself reaches a final state
       // (not when a sub-step does). V2 checks evt.taskId == workflowTask.id.
       await for (final event in eventStream) {
         if (event is TaskProgressEvent) {
-          onProgress(event.message, event.actual, event.total);
+          // Per-operator message (e.g. "Downloading packages...")
+          currentStepMessage = event.message;
+          onProgress(currentStepMessage, completedStepCount, totalDataSteps);
         } else if (event is TaskLogEvent) {
           onLog(event.message);
         } else if (event is TaskStateEvent) {
-          // Only treat as terminal if this is the RunWorkflowTask itself
+          // RunWorkflowTask itself reached final state → done
           if (event.taskId == created.id && event.state.isFinal) {
             break;
+          }
+          // A sub-step completed → increment overall progress
+          if (event.taskId != created.id &&
+              event.state is DoneState &&
+              completedTaskIds.add(event.taskId)) {
+            completedStepCount++;
+            onProgress(currentStepMessage, completedStepCount, totalDataSteps);
           }
         }
       }
