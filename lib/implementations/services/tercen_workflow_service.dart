@@ -726,17 +726,17 @@ class TercenWorkflowService implements DataService {
       final workflow = await _factory.workflowService.get(workflowId);
 
       // 1. Connect uploaded files to their TableStep inputs.
-      //    The template's TableSteps have a UnionRelation pointing at demo
-      //    data.  Replace each with a RenameRelation→InMemoryRelation that
-      //    carries the user's uploaded file document ID — the same pattern
-      //    used by webapp_lib's WorkflowRunner.addDocument().
+      //    FCS zip: RenameRelation → InMemoryRelation with .documentId
+      //      (V2: WorkflowRunner.addDocument / createDocumentRelation)
+      //    Annotation CSV table: RenameRelation → SimpleRelation(id=schemaId)
+      //      (V2: WorkflowRunner.addTableDocument / loadDocumentInMemory)
       for (final step in workflow.steps) {
         if (step is! TableStep) continue;
         if (step.id == _fcsTableStepId && fcsFileDocId.isNotEmpty) {
           step.model.relation = _createDocumentRelation(fcsFileDocId);
           step.state.taskState = DoneState();
         } else if (step.id == _annotationTableStepId && annotationFileDocId.isNotEmpty) {
-          step.model.relation = _createDocumentRelation(annotationFileDocId);
+          step.model.relation = await _createTableRelation(annotationFileDocId);
           step.state.taskState = DoneState();
         }
       }
@@ -772,6 +772,28 @@ class TercenWorkflowService implements DataService {
       print('Tercen error in setWorkflowProperties: $e');
       rethrow;
     }
+  }
+
+  /// Creates a RenameRelation wrapping a SimpleRelation that references an
+  /// already-parsed table schema (from CSVTask).  This is how Tercen connects
+  /// parsed CSV tables to TableStep inputs — matches webapp_lib
+  /// WorkflowRunner.loadDocumentInMemory().
+  ///
+  /// Unlike [_createDocumentRelation] (which wraps an InMemoryRelation with
+  /// `.documentId` for raw file documents), this points directly at the schema
+  /// via SimpleRelation.id — the engine reads already-materialized rows.
+  Future<RenameRelation> _createTableRelation(String schemaId) async {
+    final sch = await _factory.tableSchemaService.get(schemaId);
+    final colNames = sch.columns
+        .where((c) => c.name != '.ci')
+        .map((c) => c.name)
+        .toList();
+
+    final rr = RenameRelation();
+    rr.inNames.addAll(colNames);
+    rr.outNames.addAll(colNames);
+    rr.relation = SimpleRelation()..id = sch.id;
+    return rr;
   }
 
   /// Creates a RenameRelation wrapping a 1-row InMemoryRelation that carries
