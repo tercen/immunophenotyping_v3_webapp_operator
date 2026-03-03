@@ -147,17 +147,30 @@ class TercenWorkflowService implements DataService {
         }
       }
 
+      // --- Diagnostic: list all steps for debugging ---
+      print('=== WORKFLOW STEPS (${wf.steps.length}) ===');
+      for (final step in wf.steps) {
+        final kind = step.runtimeType.toString();
+        final state = step.state.taskState.runtimeType.toString();
+        print('  [$kind] "${step.name}" (${step.id}) — $state');
+      }
+      print('=== END STEPS ===');
+
       // Read cluster markers from enrichment score step output
       final clusterMarkers = await _readClusterMarkers(wf);
+      print('getResults: clusterMarkers=${clusterMarkers.length}');
 
       // Read event counts from downsample/QC step output
       final eventCounts = await _readEventCounts(wf);
+      print('getResults: eventCounts=${eventCounts.length}');
 
       // Read channel reference
       final channels = await _readChannelReference(wf);
+      print('getResults: channels=${channels.length}');
 
       // Count clusters from PhenoGraph output
       final clusterCount = _countUniqueClusters(clusterMarkers);
+      print('getResults: clusterCount=$clusterCount');
 
       return RunResult(
         clusterCount: clusterCount,
