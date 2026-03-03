@@ -496,12 +496,23 @@ class TercenWorkflowService implements DataService {
       // 2. Get project owner for the CSVTask
       final project = await _factory.projectService.get(projectId);
 
-      // 3. Create and run a CSVTask to parse the CSV into a Tercen table
+      // 3. Create and run a CSVTask to parse the CSV into a Tercen table.
+      //    CSVParserParam must be set explicitly — the default empty strings
+      //    for separator/encoding/quote cause the worker to fail with
+      //    "wrong format -- expect version as str".
+      final params = CSVParserParam()
+        ..separator = ','
+        ..encoding = 'utf-8'
+        ..quote = '"'
+        ..hasHeaders = true
+        ..allowMalformed = true
+        ..comment = '';
       var csvTask = CSVTask()
         ..state = InitState()
         ..fileDocumentId = uploaded.id
         ..projectId = projectId
-        ..owner = project.acl.owner;
+        ..owner = project.acl.owner
+        ..params = params;
       csvTask = await _factory.taskService.create(csvTask) as CSVTask;
       await _factory.taskService.runTask(csvTask.id);
       final doneTask = await _factory.taskService.waitDone(csvTask.id);
