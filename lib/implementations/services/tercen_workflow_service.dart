@@ -719,11 +719,15 @@ class TercenWorkflowService implements DataService {
         ..workflowId = workflow.id
         ..workflowRev = workflow.rev;
 
-      // Run all steps, reset all steps
+      // Only run DataSteps — TableSteps are input sources with file
+      // connections that must NOT be reset. V2 never populates stepsToReset
+      // and only adds DataStep IDs to stepsToRun.
       for (final step in workflow.steps) {
-        task.stepsToRun.add(step.id);
-        task.stepsToReset.add(step.id);
+        if (step is DataStep) {
+          task.stepsToRun.add(step.id);
+        }
       }
+      // stepsToReset left empty — matches V2 behaviour
 
       final created =
           await _factory.taskService.create(task) as RunWorkflowTask;
