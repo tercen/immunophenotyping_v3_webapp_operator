@@ -881,28 +881,46 @@ class TercenWorkflowService implements DataService {
       final created =
           await _factory.taskService.create(task) as RunWorkflowTask;
       _runningTaskId = created.id;
+
+      // V2 pattern: subscribe to event stream BEFORE starting the task
+      // to avoid missing early events.
+      final eventStream =
+          _factory.eventService.listenTaskChannel(created.id, false);
       await _factory.taskService.runTask(created.id);
 
-      // Listen to progress events via WebSocket
-      await for (final event
-          in _factory.eventService.listenTaskChannel(created.id, true)) {
+      // Phase 1: Listen to progress events via WebSocket.
+      // Only break when the RunWorkflowTask itself reaches a final state
+      // (not when a sub-step does). V2 checks evt.taskId == workflowTask.id.
+      await for (final event in eventStream) {
         if (event is TaskProgressEvent) {
           onProgress(event.message, event.actual, event.total);
         } else if (event is TaskLogEvent) {
           onLog(event.message);
         } else if (event is TaskStateEvent) {
-          if (event.state is DoneState) {
-            _runningTaskId = null;
-            onComplete(workflowId);
-            break;
-          } else if (event.state is FailedState) {
-            _runningTaskId = null;
-            final failed = event.state as FailedState;
-            onError(failed.error, failed.reason);
+          // Only treat as terminal if this is the RunWorkflowTask itself
+          if (event.taskId == created.id && event.state.isFinal) {
             break;
           }
         }
       }
+
+      // Phase 2: After stream ends, verify ALL workflow steps completed.
+      // V2 checks every step with throwIfNotDone() after the event loop.
+      // The RunWorkflowTask may report Done before all operators finish,
+      // or the stream may close early (WebSocket disconnect).
+      _runningTaskId = null;
+      final finalWf = await _factory.workflowService.get(workflowId);
+
+      for (final step in finalWf.steps) {
+        if (step.state.taskState is FailedState) {
+          final failed = step.state.taskState as FailedState;
+          onError(failed.error,
+              'Step "${step.name}" failed: ${failed.reason}');
+          return;
+        }
+      }
+
+      onComplete(workflowId);
     } catch (e) {
       _runningTaskId = null;
       print('Tercen error in runWorkflow: $e');
