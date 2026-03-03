@@ -7,6 +7,7 @@ import '../../domain/models/cluster_marker.dart';
 import '../../domain/models/event_count.dart';
 import '../../domain/models/fcs_channel.dart';
 import '../../domain/models/run_result.dart';
+import '../../domain/models/workflow_image.dart';
 import '../../domain/services/data_service.dart';
 import '../../presentation/providers/app_state_provider.dart';
 
@@ -172,11 +173,17 @@ class TercenWorkflowService implements DataService {
       final clusterCount = _countUniqueClusters(clusterMarkers);
       print('getResults: clusterCount=$clusterCount');
 
+      // Fetch images from DataStep file schemas (V2 pattern)
+      print('getResults: fetching workflow images...');
+      final images = await _fetchWorkflowImages(wf);
+      print('getResults: images=${images.length}');
+
       return RunResult(
         clusterCount: clusterCount,
         clusterMarkers: clusterMarkers,
         eventCounts: eventCounts,
         channelReference: channels,
+        images: images,
         errorMessage: errorMessage,
         failedStep: failedStep,
       );
@@ -1230,6 +1237,106 @@ class TercenWorkflowService implements DataService {
     }
     walk(relation);
     return result;
+  }
+
+  // =============================================
+  // Workflow image fetching (V2 pattern)
+  // =============================================
+
+  /// Scan all DataSteps for file schemas (mimetype column) and fetch images.
+  ///
+  /// Follows the proven V2 pattern: iterate DataSteps → get SimpleRelations →
+  /// fetch schemas → detect file schemas → read image content.
+  Future<List<WorkflowImage>> _fetchWorkflowImages(Workflow wf) async {
+    final results = <WorkflowImage>[];
+
+    // 1. Collect all SimpleRelations from every DataStep, tracking ownership.
+    final allRelations = <Relation>[];
+    final stepRelationMap = <String, List<String>>{}; // stepId → [schemaId…]
+    final stepNameById = <String, String>{};
+
+    for (final step in wf.steps) {
+      if (step is DataStep) {
+        final rels = _getSimpleRelations(step.computedRelation);
+        allRelations.addAll(rels);
+        stepRelationMap[step.id] = rels.map((r) => r.id).toList();
+        stepNameById[step.id] = step.name;
+      }
+    }
+
+    if (allRelations.isEmpty) return results;
+
+    // 2. Fetch all schemas in one batch.
+    final schemas = await _factory.tableSchemaService
+        .list(allRelations.map((r) => r.id).toList());
+
+    // 3. Process each schema — look for file schemas.
+    for (final schema in schemas) {
+      final mimetypeIdx =
+          schema.columns.indexWhere((c) => c.name.contains('mimetype'));
+      if (mimetypeIdx < 0) continue; // not a file schema
+
+      final nameIdx =
+          schema.columns.indexWhere((c) => c.name.contains('name'));
+      if (nameIdx < 0) continue;
+
+      // Which step produced this schema?
+      final stepName = _stepNameForSchema(stepNameById, stepRelationMap, schema.id);
+
+      // Read name + mimetype columns to discover files.
+      final metaTable = await _factory.tableSchemaService.select(
+        schema.id,
+        [schema.columns[nameIdx].name, schema.columns[mimetypeIdx].name],
+        0,
+        schema.nRows,
+      );
+
+      // Collect unique image filenames.
+      final seen = <String>{};
+      for (int i = 0; i < metaTable.nRows; i++) {
+        final filename = metaTable.columns[0].values[i] as String;
+        final mimetype = metaTable.columns[1].values[i] as String;
+        if (seen.contains(filename)) continue;
+        if (!mimetype.contains('image')) continue;
+        seen.add(filename);
+
+        try {
+          // Fetch binary content using selectFileContentStream (sci_tercen_client).
+          final bytes = await _factory.tableSchemaService
+              .selectFileContentStream(schema.id, filename)
+              .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
+
+          if (bytes.isNotEmpty) {
+            results.add(WorkflowImage(
+              filename: filename,
+              stepName: stepName,
+              data: Uint8List.fromList(bytes),
+              contentType: mimetype,
+            ));
+            print('  Fetched image: "$filename" from step "$stepName" '
+                '(${bytes.length} bytes, $mimetype)');
+          }
+        } catch (e) {
+          print('  Warning: could not fetch image "$filename": $e');
+        }
+      }
+    }
+
+    return results;
+  }
+
+  /// Find the step name that owns a given schema ID.
+  String _stepNameForSchema(
+    Map<String, String> stepNameById,
+    Map<String, List<String>> stepRelationMap,
+    String schemaId,
+  ) {
+    for (final entry in stepRelationMap.entries) {
+      if (entry.value.contains(schemaId)) {
+        return stepNameById[entry.key] ?? entry.key;
+      }
+    }
+    return 'Unknown';
   }
 
   // =============================================

@@ -1,6 +1,7 @@
 import 'cluster_marker.dart';
 import 'event_count.dart';
 import 'fcs_channel.dart';
+import 'workflow_image.dart';
 
 /// Complete result data for a single run's display mode.
 class RunResult {
@@ -16,6 +17,9 @@ class RunResult {
   /// Channel reference table (all channels in dataset).
   final List<FcsChannel> channelReference;
 
+  /// Images produced by workflow steps (UMAP plots, heatmaps, etc.).
+  final List<WorkflowImage> images;
+
   /// Error message if the run failed (null if complete).
   final String? errorMessage;
 
@@ -27,6 +31,7 @@ class RunResult {
     required this.clusterMarkers,
     required this.eventCounts,
     required this.channelReference,
+    this.images = const [],
     this.errorMessage,
     this.failedStep,
   });

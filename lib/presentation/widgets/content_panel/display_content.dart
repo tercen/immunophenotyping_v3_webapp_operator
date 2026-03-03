@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_colors.dart';
@@ -8,6 +10,7 @@ import '../../../core/theme/app_text_styles.dart';
 import '../../../domain/models/cluster_marker.dart';
 import '../../../domain/models/event_count.dart';
 import '../../../domain/models/fcs_channel.dart';
+import '../../../domain/models/workflow_image.dart';
 import '../../providers/app_state_provider.dart';
 import '../../providers/theme_provider.dart';
 
@@ -31,8 +34,6 @@ class DisplayContent extends StatelessWidget {
         isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
     final textSecondary =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-    final errorColor = isDark ? AppColorsDark.error : AppColors.error;
-
     final run = provider.selectedRun;
     final result = provider.currentResult;
 
@@ -74,49 +75,41 @@ class DisplayContent extends StatelessWidget {
                 isDark: isDark,
               ),
 
-            // Section 1: Cluster Overview
+            // Section 1: Visualizations (real images from workflow)
             _SectionHeading(
-              title: 'Cluster Overview',
+              title: 'Visualizations',
               isDark: isDark,
             ),
             const SizedBox(height: AppSpacing.md),
-            if (result != null && result.clusterCount > 0) ...[
+            if (result != null && result.images.isNotEmpty) ...[
               Text(
-                '${result.clusterCount} clusters found.',
+                '${result.images.length} image(s) from workflow',
                 style: AppTextStyles.bodyLarge.copyWith(color: textPrimary),
               ),
               const SizedBox(height: AppSpacing.md),
-              // UMAP scatter plot (mock image)
-              _ImageCard(
-                assetPath: 'assets/data/image_1.png',
-                caption:
-                    'UMAP scatter plot coloured by PhenoGraph cluster assignment',
-                isDark: isDark,
-              ),
+              for (final img in result.images) ...[
+                _MemoryImageCard(
+                  imageData: img.data,
+                  caption: '${img.filename}  [${img.stepName}]',
+                  isDark: isDark,
+                ),
+                const SizedBox(height: AppSpacing.lg),
+              ],
             ] else
               Text(
-                'No cluster data available for this run.',
+                'No visualizations available for this run.',
                 style: AppTextStyles.body.copyWith(color: textSecondary),
               ),
 
             const SizedBox(height: AppSpacing.xl),
 
-            // Section 2: Cluster Identity
-            _SectionHeading(
-              title: 'Cluster Identity',
-              isDark: isDark,
-            ),
-            const SizedBox(height: AppSpacing.md),
+            // Section 2: Cluster Identity (data tables)
             if (result != null && result.clusterMarkers.isNotEmpty) ...[
-              // Enrichment heatmap (mock image)
-              _ImageCard(
-                assetPath: 'assets/data/image_3.png',
-                caption:
-                    'Enrichment heatmap with hierarchical clustering (markers x clusters)',
+              _SectionHeading(
+                title: 'Cluster Identity',
                 isDark: isDark,
               ),
-              const SizedBox(height: AppSpacing.lg),
-              // Cluster markers table
+              const SizedBox(height: AppSpacing.md),
               Text(
                 'Significant Cluster Markers (p < 0.10)',
                 style: AppTextStyles.h3.copyWith(color: textPrimary),
@@ -126,66 +119,16 @@ class DisplayContent extends StatelessWidget {
                 markers: result.clusterMarkers,
                 isDark: isDark,
               ),
-              const SizedBox(height: AppSpacing.lg),
-              // UMAP by marker (mock image - using image_2)
-              _ImageCard(
-                assetPath: 'assets/data/image_2.png',
-                caption:
-                    'UMAP coloured by marker expression (small multiples)',
-                isDark: isDark,
-              ),
-            ] else
-              Text(
-                'No cluster identity data available.',
-                style: AppTextStyles.body.copyWith(color: textSecondary),
-              ),
+              const SizedBox(height: AppSpacing.xl),
+            ],
 
-            const SizedBox(height: AppSpacing.xl),
-
-            // Section 3: Differential Analysis
-            _SectionHeading(
-              title: 'Differential Analysis',
-              isDark: isDark,
-            ),
-            const SizedBox(height: AppSpacing.md),
-            if (result != null && result.clusterCount > 0) ...[
-              // Placeholder for proportions bar chart
-              _PlaceholderCard(
-                label:
-                    'Cluster proportions per sample (bar chart)\nData from ${result.clusterCount} clusters across ${result.eventCounts.length} samples',
-                isDark: isDark,
-                height: 200,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _PlaceholderCard(
-                label:
-                    'Cluster proportions across conditions (median and MAD)\nBar chart with error bars',
-                isDark: isDark,
-                height: 200,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              _PlaceholderCard(
-                label:
-                    'UMAP coloured by cluster, faceted by condition\nOne panel per condition',
-                isDark: isDark,
-                height: 200,
-              ),
-            ] else
-              Text(
-                'No differential analysis data available.',
-                style: AppTextStyles.body.copyWith(color: textSecondary),
-              ),
-
-            const SizedBox(height: AppSpacing.xl),
-
-            // Section 4: Quality Control
+            // Section 3: Quality Control
             _SectionHeading(
               title: 'Quality Control',
               isDark: isDark,
             ),
             const SizedBox(height: AppSpacing.md),
             if (result != null) ...[
-              // Event count summary table
               Text(
                 'Event Count Summary',
                 style: AppTextStyles.h3.copyWith(color: textPrimary),
@@ -196,15 +139,6 @@ class DisplayContent extends StatelessWidget {
                 isDark: isDark,
               ),
               const SizedBox(height: AppSpacing.lg),
-              // Marker distribution histograms placeholder
-              _PlaceholderCard(
-                label:
-                    'Marker distribution histograms\nLogicle-transformed values, one per marker',
-                isDark: isDark,
-                height: 160,
-              ),
-              const SizedBox(height: AppSpacing.lg),
-              // Channel reference table
               Text(
                 'Channel Reference',
                 style: AppTextStyles.h3.copyWith(color: textPrimary),
@@ -315,15 +249,15 @@ class _ErrorBanner extends StatelessWidget {
 }
 
 // =============================================================================
-// Image card (white background for scientific visualizations)
+// Memory image card (real images from Tercen workflow output)
 // =============================================================================
-class _ImageCard extends StatelessWidget {
-  final String assetPath;
+class _MemoryImageCard extends StatelessWidget {
+  final Uint8List imageData;
   final String caption;
   final bool isDark;
 
-  const _ImageCard({
-    required this.assetPath,
+  const _MemoryImageCard({
+    required this.imageData,
     required this.caption,
     required this.isDark,
   });
@@ -340,7 +274,6 @@ class _ImageCard extends StatelessWidget {
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
-            // Always white background for scientific visualizations
             color: Colors.white,
             border: Border.all(
               color: borderColor,
@@ -349,8 +282,8 @@ class _ImageCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
           ),
           clipBehavior: Clip.antiAlias,
-          child: Image.asset(
-            assetPath,
+          child: Image.memory(
+            imageData,
             fit: BoxFit.contain,
             errorBuilder: (context, error, stackTrace) {
               return Container(
@@ -358,7 +291,7 @@ class _ImageCard extends StatelessWidget {
                 color: Colors.white,
                 child: Center(
                   child: Text(
-                    'Image: $assetPath\n(not found)',
+                    'Could not decode image\n$caption',
                     textAlign: TextAlign.center,
                     style: AppTextStyles.body.copyWith(color: captionColor),
                   ),
@@ -373,48 +306,6 @@ class _ImageCard extends StatelessWidget {
           style: AppTextStyles.bodySmall.copyWith(color: captionColor),
         ),
       ],
-    );
-  }
-}
-
-// =============================================================================
-// Placeholder card (for visualization sections without mock images)
-// =============================================================================
-class _PlaceholderCard extends StatelessWidget {
-  final String label;
-  final bool isDark;
-  final double height;
-
-  const _PlaceholderCard({
-    required this.label,
-    required this.isDark,
-    this.height = 200,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final borderColor = isDark ? AppColorsDark.border : AppColors.border;
-    final textColor =
-        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-
-    return Container(
-      width: double.infinity,
-      height: height,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(
-          color: borderColor,
-          width: AppLineWeights.lineStandard,
-        ),
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
-      ),
-      child: Center(
-        child: Text(
-          label,
-          textAlign: TextAlign.center,
-          style: AppTextStyles.body.copyWith(color: textColor),
-        ),
-      ),
     );
   }
 }
