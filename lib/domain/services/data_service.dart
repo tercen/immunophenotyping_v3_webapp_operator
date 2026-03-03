@@ -48,6 +48,12 @@ abstract class DataService {
           String filename, Uint8List bytes, String projectId) async =>
       'mock-file-id';
 
+  /// Upload a CSV file and parse it into a Tercen table via CSVTask.
+  /// Returns a schema ID (not a file document ID) for use with TableSteps.
+  Future<String> uploadCsvAsTable(
+          String filename, Uint8List bytes, String projectId) async =>
+      'mock-schema-id';
+
   /// Clone the workflow template into the project for a new run.
   /// Returns the cloned workflow ID.
   Future<String> cloneWorkflowTemplate(String projectId) async =>

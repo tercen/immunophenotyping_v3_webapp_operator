@@ -669,10 +669,12 @@ class AppStateProvider extends ChangeNotifier {
     _error = null;
 
     try {
-      // 1. Upload annotation file to Tercen
+      // 1. Upload annotation CSV and parse into a Tercen table via CSVTask.
+      //    Returns a schemaId (not a raw file doc ID) — required for the
+      //    annotation TableStep to find its parsed tabular data.
       _currentRunningStep = 'Uploading annotation...';
       notifyListeners();
-      _annotationFileDocId = await _dataService.uploadFile(
+      _annotationFileDocId = await _dataService.uploadCsvAsTable(
         _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
         _annotationBytes!,
         _projectId,

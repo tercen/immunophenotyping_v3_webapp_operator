@@ -479,6 +479,50 @@ class TercenWorkflowService implements DataService {
   }
 
   // =============================================
+  // Phase 3: CSV-to-table upload (annotation files)
+  // =============================================
+
+  @override
+  Future<String> uploadCsvAsTable(
+      String filename, Uint8List bytes, String projectId) async {
+    try {
+      // 1. Upload the raw file as a FileDocument
+      final fileDoc = FileDocument()
+        ..name = filename
+        ..projectId = projectId;
+      final uploaded = await _factory.fileService
+          .upload(fileDoc, Stream.value(bytes));
+
+      // 2. Get project owner for the CSVTask
+      final project = await _factory.projectService.get(projectId);
+
+      // 3. Create and run a CSVTask to parse the CSV into a Tercen table
+      var csvTask = CSVTask()
+        ..fileDocumentId = uploaded.id
+        ..projectId = projectId
+        ..owner = project.acl.owner;
+      csvTask = await _factory.taskService.create(csvTask) as CSVTask;
+      await _factory.taskService.runTask(csvTask.id);
+      final doneTask = await _factory.taskService.waitDone(csvTask.id);
+
+      if (doneTask.state is FailedState) {
+        final failed = doneTask.state as FailedState;
+        throw Exception('CSVTask failed: ${failed.error}: ${failed.reason}');
+      }
+
+      // 4. Return the schema ID from the completed CSVTask
+      final csvDone = doneTask as CSVTask;
+      if (csvDone.schemaId.isEmpty) {
+        throw StateError('CSVTask completed but returned no schemaId');
+      }
+      return csvDone.schemaId;
+    } catch (e) {
+      print('Tercen error in uploadCsvAsTable: $e');
+      rethrow;
+    }
+  }
+
+  // =============================================
   // Phase 3: Workflow cloning
   // =============================================
 
