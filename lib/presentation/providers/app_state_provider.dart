@@ -291,6 +291,8 @@ class AppStateProvider extends ChangeNotifier {
     if (firstWithBytes != null) {
       _fcsBytes = firstWithBytes.bytes;
       _fcsUploadFilename = firstWithBytes.filename;
+      // New file provided — clear any reused doc ID so we upload fresh
+      _fcsFileDocId = null;
     }
 
     // Count files: if a single zip was uploaded, count entries inside it;
@@ -327,6 +329,8 @@ class AppStateProvider extends ChangeNotifier {
     if (firstWithBytes != null) {
       _annotationBytes = firstWithBytes.bytes;
       _annotationUploadFilename = firstWithBytes.filename;
+      // New file provided — clear any reused doc ID so we upload fresh
+      _annotationFileDocId = null;
 
       // Parse CSV to extract sample count and conditions
       _parseCsvAnnotation(firstWithBytes.bytes!);
@@ -622,23 +626,30 @@ class AppStateProvider extends ChangeNotifier {
   /// Stage 1 Continue: upload FCS file to Tercen + clone workflow template.
   /// No pipeline steps run — just get the data into the project so the user
   /// can proceed to provide the annotation file.
+  ///
+  /// Re-run path: if _fcsFileDocId is already set (from a previous run) and
+  /// no new bytes were provided, skip the upload and reuse the existing doc.
   Future<void> _advanceFromStage1() async {
-    if (_fcsBytes == null) return;
+    final hasExistingDoc = _fcsFileDocId != null;
+    if (_fcsBytes == null && !hasExistingDoc) return;
 
     _isLoading = true;
-    _currentRunningStep = 'Uploading FCS data...';
     _error = null;
     notifyListeners();
 
     try {
-      // 1. Upload FCS file to Tercen
-      _fcsFileDocId = await _dataService.uploadFile(
-        _fcsUploadFilename ?? _fcsFilename ?? 'fcs_data.zip',
-        _fcsBytes!,
-        _projectId,
-      );
+      // 1. Upload FCS file (skip if reusing from previous run)
+      if (_fcsBytes != null) {
+        _currentRunningStep = 'Uploading FCS data...';
+        notifyListeners();
+        _fcsFileDocId = await _dataService.uploadFile(
+          _fcsUploadFilename ?? _fcsFilename ?? 'fcs_data.zip',
+          _fcsBytes!,
+          _projectId,
+        );
+      }
 
-      // 2. Clone workflow template (needed before we can configure inputs)
+      // 2. Clone workflow template (always needed for a new run)
       _currentRunningStep = 'Cloning workflow template...';
       notifyListeners();
       _clonedWorkflowId = await _dataService.cloneWorkflowTemplate(_projectId);
@@ -657,8 +668,12 @@ class AppStateProvider extends ChangeNotifier {
   /// Stage 2 Continue: upload annotation file → configure workflow with both
   /// file inputs → run preflight steps ("Read FCS" + "Input Annotation") →
   /// extract channels → advance to Stage 3.
+  ///
+  /// Re-run path: if _annotationFileDocId is already set (from a previous run)
+  /// and no new bytes were provided, skip the upload and reuse the existing doc.
   Future<void> _advanceFromStage2() async {
-    if (_annotationBytes == null) return;
+    final hasExistingAnnotDoc = _annotationFileDocId != null;
+    if (_annotationBytes == null && !hasExistingAnnotDoc) return;
     if (_clonedWorkflowId == null || _fcsFileDocId == null) {
       _advanceError = 'Workflow not initialised. Please go back to Stage 1.';
       notifyListeners();
@@ -669,16 +684,16 @@ class AppStateProvider extends ChangeNotifier {
     _error = null;
 
     try {
-      // 1. Upload annotation CSV and parse into a Tercen table via CSVTask.
-      //    Returns a schemaId (not a raw file doc ID) — required for the
-      //    annotation TableStep to find its parsed tabular data.
-      _currentRunningStep = 'Uploading annotation...';
-      notifyListeners();
-      _annotationFileDocId = await _dataService.uploadCsvAsTable(
-        _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
-        _annotationBytes!,
-        _projectId,
-      );
+      // 1. Upload annotation CSV (skip if reusing from previous run)
+      if (_annotationBytes != null) {
+        _currentRunningStep = 'Uploading annotation...';
+        notifyListeners();
+        _annotationFileDocId = await _dataService.uploadCsvAsTable(
+          _annotationUploadFilename ?? _annotationFilename ?? 'annotation.csv',
+          _annotationBytes!,
+          _projectId,
+        );
+      }
 
       // 2. Configure workflow with both file inputs
       _currentRunningStep = 'Configuring workflow...';
@@ -841,6 +856,7 @@ class AppStateProvider extends ChangeNotifier {
       settings: {
         'fcsFilename': _fcsFilename ?? '',
         'fcsFileCount': _fcsFileCount,
+        'fcsFileSize': _fcsFileSize,
         'totalChannels': _fcsChannelCount,
         'annotationFilename': _annotationFilename ?? '',
         'sampleCount': _annotationSampleCount,
@@ -852,6 +868,9 @@ class AppStateProvider extends ChangeNotifier {
         'umapMinDist': _umapMinDist,
         'randomSeed': _randomSeed,
         'runName': name,
+        // Tercen artefact IDs — needed for re-run to skip re-upload
+        'fcsFileDocId': _fcsFileDocId ?? '',
+        'annotationFileDocId': _annotationFileDocId ?? '',
       },
     );
     _runHistory.insert(0, entry);
@@ -973,15 +992,15 @@ class AppStateProvider extends ChangeNotifier {
     final run = _runHistory.firstWhere((r) => r.id == runId);
     final s = run.settings;
 
-    // Pre-fill FCS upload display info (no bytes — user must re-upload)
+    // Pre-fill FCS upload display info
     _fcsFilename = s['fcsFilename'] as String?;
     _fcsFileCount = s['fcsFileCount'] as int? ?? 0;
     _fcsChannelCount = s['totalChannels'] as int? ?? 0;
     _fcsTotalEvents = 0;
-    _fcsFileSize = 0;
+    _fcsFileSize = s['fcsFileSize'] as int? ?? 0;
     _fcsUploaded = _fcsFilename != null && _fcsFilename!.isNotEmpty;
 
-    // Pre-fill annotation display info (no bytes — user must re-upload)
+    // Pre-fill annotation display info
     _annotationFilename = s['annotationFilename'] as String?;
     _annotationSampleCount = s['sampleCount'] as int? ?? 0;
     _annotationConditions =
@@ -990,14 +1009,21 @@ class AppStateProvider extends ChangeNotifier {
     _annotationUploaded =
         _annotationFilename != null && _annotationFilename!.isNotEmpty;
 
-    // Clear bytes and Tercen artefacts — user must re-upload files
+    // Clear bytes (user can optionally re-upload new files)
     _fcsBytes = null;
     _fcsUploadFilename = null;
     _annotationBytes = null;
     _annotationUploadFilename = null;
-    _clonedWorkflowId = null;
-    _fcsFileDocId = null;
-    _annotationFileDocId = null;
+
+    // Restore Tercen artefact IDs — allows skipping re-upload if user
+    // keeps the existing files. Cleared if user drops new files.
+    _clonedWorkflowId = null; // always clone fresh for a new run
+    final savedFcsDocId = s['fcsFileDocId'] as String?;
+    final savedAnnotDocId = s['annotationFileDocId'] as String?;
+    _fcsFileDocId =
+        (savedFcsDocId != null && savedFcsDocId.isNotEmpty) ? savedFcsDocId : null;
+    _annotationFileDocId =
+        (savedAnnotDocId != null && savedAnnotDocId.isNotEmpty) ? savedAnnotDocId : null;
 
     // Pre-fill channel selection
     final selectedCount = s['selectedChannelCount'] as int? ?? 30;
