@@ -763,11 +763,17 @@ class TercenWorkflowService implements DataService {
       }
 
       // 2. Set algorithmic parameters on DataStep operator properties.
+      print('[setWorkflowProperties] Applying: channels=${selectedChannels.length}, '
+          'maxEvents=$maxEventsPerFile, k=$phenographK, '
+          'n_neighbors=$umapNNeighbors, min_dist=$umapMinDist, seed=$randomSeed');
+      int matchedProps = 0;
       for (final step in workflow.steps) {
         if (step is! DataStep) continue;
         final props =
             step.model.operatorSettings.operatorRef.propertyValues;
+        final opName = step.name;
         for (final pv in props) {
+          final oldValue = pv.value;
           switch (pv.name) {
             case 'k':
               pv.value = phenographK.toString();
@@ -785,8 +791,15 @@ class TercenWorkflowService implements DataService {
             case 'selected_channels':
               pv.value = selectedChannels.join(',');
           }
+          if (pv.value != oldValue) {
+            print('  ✓ Step "$opName" prop "${pv.name}": "$oldValue" → "${pv.value}"');
+            matchedProps++;
+          } else {
+            print('  · Step "$opName" prop "${pv.name}" = "${pv.value}" (unchanged)');
+          }
         }
       }
+      print('[setWorkflowProperties] $matchedProps properties changed.');
 
       await _factory.workflowService.update(workflow);
     } catch (e) {
@@ -994,6 +1007,21 @@ class TercenWorkflowService implements DataService {
   }
 
   @override
+  Future<void> renameWorkflow(String workflowId, String name) async {
+    try {
+      final wf = await _factory.workflowService.get(workflowId);
+      wf.name = name;
+      // Move to project root folder (empty folderId) — V2 sets folderId
+      // explicitly after copyApp to avoid "workflow_tests" subfolder.
+      wf.folderId = '';
+      await _factory.workflowService.update(wf);
+    } catch (e) {
+      print('Tercen error in renameWorkflow: $e');
+      rethrow;
+    }
+  }
+
+  @override
   Future<void> deleteWorkflow(String workflowId) async {
     try {
       final wf = await _factory.workflowService.get(workflowId);
@@ -1008,7 +1036,8 @@ class TercenWorkflowService implements DataService {
   Future<int> getWorkflowStepCount(String workflowId) async {
     try {
       final wf = await _factory.workflowService.get(workflowId);
-      return wf.steps.length;
+      // Count only non-TableSteps — matches what runWorkflow actually executes.
+      return wf.steps.where((s) => s is! TableStep).length;
     } catch (e) {
       return 0;
     }

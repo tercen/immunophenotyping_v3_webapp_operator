@@ -290,19 +290,10 @@ class _Stage3ChannelSelection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // CHANNEL SELECTION section
-        Row(
-          children: [
-            Text(
-              'CHANNEL SELECTION',
-              style:
-                  AppTextStyles.sectionHeader.copyWith(color: labelColor),
-            ),
-            const Spacer(),
-            Text(
-              '${provider.selectedChannelCount} of ${provider.allChannels.length} selected',
-              style: AppTextStyles.bodySmall.copyWith(color: labelColor),
-            ),
-          ],
+        Text(
+          'CHANNEL SELECTION',
+          style:
+              AppTextStyles.sectionHeader.copyWith(color: labelColor),
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
         // Select All / Deselect All

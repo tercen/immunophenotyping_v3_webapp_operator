@@ -87,6 +87,9 @@ abstract class DataService {
   /// Cancel a running workflow task.
   Future<void> cancelRun(String taskId) async {}
 
+  /// Rename a workflow and move it to the project root folder.
+  Future<void> renameWorkflow(String workflowId, String name) async {}
+
   /// Delete a cloned workflow (and its results) from the project.
   Future<void> deleteWorkflow(String workflowId) async {}
 

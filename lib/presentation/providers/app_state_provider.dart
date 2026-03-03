@@ -781,11 +781,14 @@ class AppStateProvider extends ChangeNotifier {
           _clonedWorkflowId ?? await _dataService.cloneWorkflowTemplate(_projectId);
       _pendingRunId = workflowId;
 
-      // 2. Get total step count for progress display
+      // 2. Rename workflow with run name and move to project root folder
+      await _dataService.renameWorkflow(workflowId, name);
+
+      // 3. Get total step count for progress display
       _totalSteps = await _dataService.getWorkflowStepCount(workflowId);
       if (_totalSteps == 0) _totalSteps = 31; // fallback
 
-      // 3. Set all workflow properties (channels, analysis params + uploaded file IDs)
+      // 4. Set all workflow properties (channels, analysis params + uploaded file IDs)
       _currentRunningStep = 'Configuring workflow...';
       notifyListeners();
       final selected = _selectedChannels.entries
@@ -804,7 +807,7 @@ class AppStateProvider extends ChangeNotifier {
         annotationFileDocId: _annotationFileDocId ?? '',
       );
 
-      // 4. Run all workflow steps with progress callbacks
+      // 5. Run all workflow steps with progress callbacks
       _currentRunningStep = 'Starting execution...';
       notifyListeners();
       await _dataService.runWorkflow(
@@ -847,7 +850,8 @@ class AppStateProvider extends ChangeNotifier {
       serviceLocator<String>(instanceName: 'projectId');
 
   /// Finalize a run (complete or stopped) and transition to Display mode.
-  void _finishRun(String runId, String name, String status) {
+  /// Awaits result/image loading so the display is ready before the UI flips.
+  Future<void> _finishRun(String runId, String name, String status) async {
     final entry = RunEntry(
       id: runId,
       name: name,
@@ -875,12 +879,19 @@ class AppStateProvider extends ChangeNotifier {
     );
     _runHistory.insert(0, entry);
     _selectedRunId = runId;
+    _pendingRunId = null;
+
+    // Show a loading message while fetching images
+    _currentRunningStep = 'Loading results...';
+    notifyListeners();
+
+    // Await results (including image download) before switching to display
+    await _loadResults(runId);
+
     _contentMode = ContentMode.display;
     _headerHeading = name;
     _appState = AppState.waiting;
-    _pendingRunId = null;
-
-    _loadResults(runId);
+    _currentRunningStep = '';
     notifyListeners();
   }
 

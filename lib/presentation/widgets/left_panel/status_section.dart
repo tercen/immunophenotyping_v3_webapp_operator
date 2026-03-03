@@ -119,6 +119,12 @@ class StatusSection extends StatelessWidget {
                 value: provider.totalSteps > 0
                     ? (provider.completedSteps / provider.totalSteps).clamp(0.0, 1.0)
                     : null,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  isDark ? AppColorsDark.primary : AppColors.primary,
+                ),
+                backgroundColor: isDark
+                    ? AppColorsDark.neutral700
+                    : AppColors.neutral200,
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(
