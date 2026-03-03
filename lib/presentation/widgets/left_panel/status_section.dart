@@ -116,7 +116,9 @@ class StatusSection extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               LinearProgressIndicator(
-                value: provider.completedSteps / provider.totalSteps,
+                value: provider.totalSteps > 0
+                    ? (provider.completedSteps / provider.totalSteps).clamp(0.0, 1.0)
+                    : null,
               ),
               const SizedBox(height: AppSpacing.xs),
               Text(

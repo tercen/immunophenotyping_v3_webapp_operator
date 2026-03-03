@@ -917,12 +917,18 @@ class TercenWorkflowService implements DataService {
           if (event.taskId == created.id && event.state.isFinal) {
             break;
           }
-          // A sub-step completed → increment overall progress
+          // A sub-step completed → increment overall progress.
+          // Cap at totalDataSteps because the event stream may deliver
+          // DoneState events for sub-tasks beyond the workflow step count
+          // (e.g. internal orchestration tasks).
           if (event.taskId != created.id &&
               event.state is DoneState &&
               completedTaskIds.add(event.taskId)) {
             completedStepCount++;
-            onProgress(currentStepMessage, completedStepCount, totalDataSteps);
+            final reported = completedStepCount > totalDataSteps
+                ? totalDataSteps
+                : completedStepCount;
+            onProgress(currentStepMessage, reported, totalDataSteps);
           }
         }
       }
