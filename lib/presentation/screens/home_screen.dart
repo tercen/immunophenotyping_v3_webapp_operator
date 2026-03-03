@@ -1,3 +1,6 @@
+import 'dart:js_interop';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:web/web.dart' as web;
@@ -10,6 +13,7 @@ import '../widgets/left_panel/history_section.dart';
 import '../widgets/left_panel/info_section.dart';
 import '../widgets/content_panel/content_panel.dart';
 import '../../di/service_locator.dart';
+import '../../domain/services/data_service.dart';
 
 /// Home screen: assembles the Type 3 three-panel layout for
 /// Flow Immunophenotyping - PhenoGraph.
@@ -110,7 +114,8 @@ class _HomeScreenState extends State<HomeScreen> {
         if (runId != null) provider.initiateReRun(runId);
       },
       onExport: () {
-        // no-op in mock mode
+        final runId = provider.selectedRunId;
+        if (runId != null) _handleExport(context, runId);
       },
       onDelete: () {
         final runId = provider.selectedRunId;
@@ -137,6 +142,119 @@ class _HomeScreenState extends State<HomeScreen> {
           '${base.scheme}://${base.host}/$teamId/p/$projectId';
       web.window.location.href = projectUrl;
     }
+  }
+
+  void _handleExport(BuildContext context, String runId) async {
+    final dataService = serviceLocator<DataService>();
+
+    // Show loading dialog while discovering files.
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Finding export files…'),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      final files = await dataService.getExportableFiles(runId);
+
+      if (!mounted) return;
+      Navigator.of(context).pop(); // dismiss loading dialog
+
+      if (files.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No export files available for this run.')),
+        );
+        return;
+      }
+
+      // Show file list dialog.
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Export'),
+          content: SizedBox(
+            width: 360,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: files.map((file) {
+                final icon = _iconForContentType(file.contentType);
+                return ListTile(
+                  leading: Icon(icon),
+                  title: Text(file.filename),
+                  subtitle: Text(file.stepName),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _downloadFile(context, dataService, file.schemaId,
+                        file.filename, file.contentType);
+                  },
+                );
+              }).toList(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cancel'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(); // dismiss loading dialog
+      _showErrorDialog('Export Failed', '$e');
+    }
+  }
+
+  void _downloadFile(BuildContext context, DataService dataService,
+      String schemaId, String filename, String contentType) async {
+    // Show brief loading indicator.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Downloading $filename…')),
+    );
+
+    try {
+      final bytes = await dataService.downloadExportFile(schemaId, filename);
+      _triggerBrowserDownload(bytes, filename, contentType);
+    } catch (e) {
+      if (!mounted) return;
+      _showErrorDialog('Download Failed', '$e');
+    }
+  }
+
+  void _triggerBrowserDownload(
+      Uint8List bytes, String filename, String contentType) {
+    final blob = web.Blob(
+      [bytes.toJS].toJS,
+      web.BlobPropertyBag(type: contentType),
+    );
+    final url = web.URL.createObjectURL(blob);
+    final anchor = web.HTMLAnchorElement()
+      ..href = url
+      ..download = filename;
+    web.document.body!.append(anchor);
+    anchor.click();
+    anchor.remove();
+    web.URL.revokeObjectURL(url);
+  }
+
+  IconData _iconForContentType(String contentType) {
+    if (contentType.contains('pdf')) return Icons.picture_as_pdf;
+    if (contentType.contains('presentation') || contentType.contains('ppt')) {
+      return Icons.slideshow;
+    }
+    if (contentType.contains('fcs') || contentType.contains('octet-stream')) {
+      return Icons.science;
+    }
+    return Icons.file_download;
   }
 
   void _confirmDelete(

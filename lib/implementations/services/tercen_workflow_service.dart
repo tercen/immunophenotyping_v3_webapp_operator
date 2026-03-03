@@ -6,6 +6,7 @@ import 'package:sci_tercen_client/sci_client.dart' hide ServiceFactory;
 import '../../domain/models/cluster_marker.dart';
 import '../../domain/models/event_count.dart';
 import '../../domain/models/fcs_channel.dart';
+import '../../domain/models/export_file_info.dart';
 import '../../domain/models/run_result.dart';
 import '../../domain/models/workflow_image.dart';
 import '../../domain/services/data_service.dart';
@@ -1243,16 +1244,16 @@ class TercenWorkflowService implements DataService {
   // Workflow image fetching (V2 pattern)
   // =============================================
 
-  /// Scan all DataSteps for file schemas (mimetype column) and fetch images.
+  /// Scan all DataSteps for file schemas (schemas with a "mimetype" column).
   ///
-  /// Follows the proven V2 pattern: iterate DataSteps → get SimpleRelations →
-  /// fetch schemas → detect file schemas → read image content.
-  Future<List<WorkflowImage>> _fetchWorkflowImages(Workflow wf) async {
-    final results = <WorkflowImage>[];
+  /// Returns a flat list of (schemaId, filename, mimetype, stepName) tuples
+  /// for every unique file found. No content is downloaded.
+  Future<List<_FileSchemaEntry>> _scanFileSchemas(Workflow wf) async {
+    final entries = <_FileSchemaEntry>[];
 
-    // 1. Collect all SimpleRelations from every DataStep, tracking ownership.
+    // 1. Collect SimpleRelations from every DataStep.
     final allRelations = <Relation>[];
-    final stepRelationMap = <String, List<String>>{}; // stepId → [schemaId…]
+    final stepRelationMap = <String, List<String>>{};
     final stepNameById = <String, String>{};
 
     for (final step in wf.steps) {
@@ -1264,26 +1265,25 @@ class TercenWorkflowService implements DataService {
       }
     }
 
-    if (allRelations.isEmpty) return results;
+    if (allRelations.isEmpty) return entries;
 
     // 2. Fetch all schemas in one batch.
     final schemas = await _factory.tableSchemaService
         .list(allRelations.map((r) => r.id).toList());
 
-    // 3. Process each schema — look for file schemas.
+    // 3. Detect file schemas and collect file metadata.
     for (final schema in schemas) {
       final mimetypeIdx =
           schema.columns.indexWhere((c) => c.name.contains('mimetype'));
-      if (mimetypeIdx < 0) continue; // not a file schema
+      if (mimetypeIdx < 0) continue;
 
       final nameIdx =
           schema.columns.indexWhere((c) => c.name.contains('name'));
       if (nameIdx < 0) continue;
 
-      // Which step produced this schema?
-      final stepName = _stepNameForSchema(stepNameById, stepRelationMap, schema.id);
+      final stepName =
+          _stepNameForSchema(stepNameById, stepRelationMap, schema.id);
 
-      // Read name + mimetype columns to discover files.
       final metaTable = await _factory.tableSchemaService.select(
         schema.id,
         [schema.columns[nameIdx].name, schema.columns[mimetypeIdx].name],
@@ -1291,38 +1291,81 @@ class TercenWorkflowService implements DataService {
         schema.nRows,
       );
 
-      // Collect unique image filenames.
       final seen = <String>{};
       for (int i = 0; i < metaTable.nRows; i++) {
         final filename = metaTable.columns[0].values[i] as String;
         final mimetype = metaTable.columns[1].values[i] as String;
         if (seen.contains(filename)) continue;
-        if (!mimetype.contains('image')) continue;
         seen.add(filename);
 
-        try {
-          // Fetch binary content using selectFileContentStream (sci_tercen_client).
-          final bytes = await _factory.tableSchemaService
-              .selectFileContentStream(schema.id, filename)
-              .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
+        entries.add(_FileSchemaEntry(
+          schemaId: schema.id,
+          filename: filename,
+          mimetype: mimetype,
+          stepName: stepName,
+        ));
+      }
+    }
 
-          if (bytes.isNotEmpty) {
-            results.add(WorkflowImage(
-              filename: filename,
-              stepName: stepName,
-              data: Uint8List.fromList(bytes),
-              contentType: mimetype,
-            ));
-            print('  Fetched image: "$filename" from step "$stepName" '
-                '(${bytes.length} bytes, $mimetype)');
-          }
-        } catch (e) {
-          print('  Warning: could not fetch image "$filename": $e');
+    return entries;
+  }
+
+  /// Fetch image files from all DataStep file schemas.
+  Future<List<WorkflowImage>> _fetchWorkflowImages(Workflow wf) async {
+    final results = <WorkflowImage>[];
+    final entries = await _scanFileSchemas(wf);
+
+    for (final entry in entries) {
+      if (!entry.mimetype.contains('image')) continue;
+
+      try {
+        final bytes = await _factory.tableSchemaService
+            .selectFileContentStream(entry.schemaId, entry.filename)
+            .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
+
+        if (bytes.isNotEmpty) {
+          results.add(WorkflowImage(
+            filename: entry.filename,
+            stepName: entry.stepName,
+            data: Uint8List.fromList(bytes),
+            contentType: entry.mimetype,
+          ));
+          print('  Fetched image: "${entry.filename}" from step "${entry.stepName}" '
+              '(${bytes.length} bytes, ${entry.mimetype})');
         }
+      } catch (e) {
+        print('  Warning: could not fetch image "${entry.filename}": $e');
       }
     }
 
     return results;
+  }
+
+  // --- Export file discovery and download ---
+
+  @override
+  Future<List<ExportFileInfo>> getExportableFiles(String runId) async {
+    final wf = await _factory.workflowService.get(runId);
+    final entries = await _scanFileSchemas(wf);
+
+    return entries
+        .where((e) => !e.mimetype.contains('image'))
+        .map((e) => ExportFileInfo(
+              filename: e.filename,
+              stepName: e.stepName,
+              contentType: e.mimetype,
+              schemaId: e.schemaId,
+            ))
+        .toList();
+  }
+
+  @override
+  Future<Uint8List> downloadExportFile(
+      String schemaId, String filename) async {
+    final bytes = await _factory.tableSchemaService
+        .selectFileContentStream(schemaId, filename)
+        .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
+    return Uint8List.fromList(bytes);
   }
 
   /// Find the step name that owns a given schema ID.
@@ -1372,4 +1415,19 @@ class TercenWorkflowService implements DataService {
 
     print('=== END REPORT ===');
   }
+}
+
+/// Internal tuple for file-schema scan results (not exported).
+class _FileSchemaEntry {
+  final String schemaId;
+  final String filename;
+  final String mimetype;
+  final String stepName;
+
+  const _FileSchemaEntry({
+    required this.schemaId,
+    required this.filename,
+    required this.mimetype,
+    required this.stepName,
+  });
 }

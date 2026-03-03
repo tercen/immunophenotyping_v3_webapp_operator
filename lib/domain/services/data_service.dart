@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import '../../presentation/providers/app_state_provider.dart';
+import '../models/export_file_info.dart';
 import '../models/fcs_channel.dart';
 import '../models/run_result.dart';
 
@@ -102,4 +103,11 @@ abstract class DataService {
   /// Read the maximum event count across all FCS files from the "Read FCS"
   /// step output. Returns 0 if not available.
   Future<int> getMaxEventsPerFile(String workflowId) async => 0;
+
+  /// List downloadable export files (PDF, PPT, FCS) from a completed run.
+  Future<List<ExportFileInfo>> getExportableFiles(String runId) async => [];
+
+  /// Download a single export file by schema ID and filename.
+  Future<Uint8List> downloadExportFile(String schemaId, String filename) async =>
+      Uint8List(0);
 }
