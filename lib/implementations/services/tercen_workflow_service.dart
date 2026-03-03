@@ -246,29 +246,103 @@ class TercenWorkflowService implements DataService {
   /// Fallback: "Read FCS" step output has one column per FCS channel; the
   /// column names are the channel names. Available immediately after Stage 1
   /// preflight (only "Read FCS" has run).
-  /// Read FCS channel names from the "Read FCS" step output.
+  /// Read FCS channel names from the "Read FCS" step's "Variables" schema.
   ///
-  /// The "Read FCS" operator outputs a gathered (long-format) table with
-  /// columns: event_id, Channel_id, value.  The actual FCS channel names
-  /// are the distinct values inside the "Channel_id" column.
+  /// The "Read FCS" operator outputs multiple relations. The "Variables"
+  /// schema is a small lookup table (~30 rows) with columns:
+  ///   channel_name        — raw FCS parameter name ($PnN, e.g. "BV421-A")
+  ///   channel_description — human-readable label ($PnS, e.g. "CD3")
   ///
-  /// Throws if the step hasn't run, has no output, or the column is missing.
+  /// V2 pattern: find schema named "Variables", select name+description cols.
+  /// Throws if the step hasn't run or the Variables schema is missing.
   Future<List<FcsChannel>> _readChannelReference(Workflow wf) async {
-    final readFcsTable = await _readStepOutput(wf, 'Read FCS');
-    if (readFcsTable == null) {
-      throw StateError('Read FCS step has no output — it may not have run or completed.');
+    // 1. Find the Read FCS DataStep
+    DataStep? readFcsStep;
+    for (final step in wf.steps) {
+      if (step is DataStep && step.name == 'Read FCS') {
+        readFcsStep = step;
+        break;
+      }
+    }
+    if (readFcsStep == null) {
+      throw StateError('"Read FCS" step not found in workflow.');
+    }
+    if (readFcsStep.state.taskState is! DoneState) {
+      throw StateError('"Read FCS" step has not completed.');
     }
 
-    final channelIds = _getColumnValues<String>(readFcsTable, 'Channel_id');
-    if (channelIds == null || channelIds.isEmpty) {
-      throw StateError('Read FCS output has no "Channel_id" column or it is empty.');
+    // 2. Walk the relation tree to get all schema IDs
+    final relations = _getSimpleRelations(readFcsStep.computedRelation);
+    if (relations.isEmpty) {
+      throw StateError('"Read FCS" step has no output relations.');
     }
 
-    final uniqueNames = channelIds.toSet().toList()..sort();
-    return uniqueNames.map((name) {
-      final isQc = _isQcChannel(name, name);
-      return FcsChannel(name: name, description: name, isQc: isQc);
-    }).toList();
+    // 3. Fetch all schemas and find the one named "Variables"
+    final schemaIds = relations.map((r) => r.id).toList();
+    final schemas = await _factory.tableSchemaService.list(schemaIds);
+
+    Schema? variablesSchema;
+    for (final sch in schemas) {
+      if (sch.name == 'Variables') {
+        variablesSchema = sch;
+        break;
+      }
+    }
+    if (variablesSchema == null || variablesSchema.nRows == 0) {
+      throw StateError(
+          '"Read FCS" output has no "Variables" schema. '
+          'Available schemas: ${schemas.map((s) => '"${s.name}" (${s.nRows} rows)').join(', ')}');
+    }
+
+    // 4. Find the name and description columns (V2 uses .contains())
+    final nameCol = variablesSchema.columns
+        .where((c) => c.name.contains('name') && !c.name.contains('description'))
+        .firstOrNull;
+    final descCol = variablesSchema.columns
+        .where((c) => c.name.contains('description'))
+        .firstOrNull;
+
+    if (nameCol == null) {
+      throw StateError(
+          '"Variables" schema has no column containing "name". '
+          'Columns: ${variablesSchema.columns.map((c) => c.name).join(', ')}');
+    }
+
+    // 5. SELECT the columns from the Variables table
+    final colsToSelect = <String>[nameCol.name];
+    if (descCol != null) colsToSelect.add(descCol.name);
+
+    final table = await _factory.tableSchemaService.select(
+      variablesSchema.id,
+      colsToSelect,
+      0,
+      variablesSchema.nRows,
+    );
+
+    // 6. Extract values
+    final names = _getColumnValues<String>(table, nameCol.name);
+    if (names == null || names.isEmpty) {
+      throw StateError('"Variables" schema "${nameCol.name}" column is empty.');
+    }
+
+    final descriptions = descCol != null
+        ? _getColumnValues<String>(table, descCol.name)
+        : null;
+
+    // 7. Build FcsChannel list
+    final channels = <FcsChannel>[];
+    for (int i = 0; i < names.length; i++) {
+      final name = names[i];
+      final desc = (descriptions != null && i < descriptions.length)
+          ? descriptions[i]
+          : name;
+      channels.add(FcsChannel(
+        name: name,
+        description: desc,
+        isQc: _isQcChannel(name, desc),
+      ));
+    }
+    return channels;
   }
 
   bool _isQcChannel(String name, String description) {

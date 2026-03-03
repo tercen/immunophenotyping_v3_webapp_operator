@@ -33,18 +33,14 @@ const RESOURCES = {"assets/AssetManifest.bin": "6aa85f6c1c56d45f0ee9e69ff98b4f8a
 "canvaskit/skwasm_heavy.js.symbols": "0755b4fb399918388d71b59ad390b055",
 "canvaskit/skwasm_heavy.wasm": "b0be7910760d205ea4e011458df6ee01",
 "flutter.js": "24bc71911b75b5f8135c949e27a2984e",
-"flutter_bootstrap.js": "e34cd94888d933a6a98067b6b730c3b8",
+"flutter_bootstrap.js": "b9f0b06fdb2fb965435665f8abdec975",
 "index.html": "125144e4aa07c8db465055570061e093",
 "/": "125144e4aa07c8db465055570061e093",
-"main.dart.js": "a261115d4b2258b89bb46f9c033956cc",
-"main.dart.mjs": "0cc19520adecbc1a4c5792938a654045",
-"main.dart.wasm": "46b5abca556294649927b2c03e79c608",
+"main.dart.js": "44faaae8212ae7cd6f5b61f6be389603",
 "version.json": "11099fb9ef10d0b5099f33c6428f950d"};
 // The application shell files that are downloaded before a service worker can
 // start.
 const CORE = ["main.dart.js",
-"main.dart.wasm",
-"main.dart.mjs",
 "index.html",
 "flutter_bootstrap.js",
 "assets/AssetManifest.bin.json",
