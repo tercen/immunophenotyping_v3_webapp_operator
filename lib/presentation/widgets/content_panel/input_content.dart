@@ -4,6 +4,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_colors_dark.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_text_styles.dart';
+import '../../../domain/models/upload_file.dart';
 import '../../providers/app_state_provider.dart';
 import '../../providers/theme_provider.dart';
 import '../upload_zone.dart';
@@ -190,6 +191,20 @@ class _Stage1UploadFcs extends StatelessWidget {
     final labelColor =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
 
+    // Pre-populate for re-run: show the previously uploaded file.
+    List<UploadFile>? initialFiles;
+    if (provider.fcsUploaded && provider.fcsFilename != null) {
+      initialFiles = [
+        UploadFile(
+          id: 'rerun_fcs',
+          filename: provider.fcsFilename!,
+          fileSize: provider.fcsFileSize,
+          status: UploadFileStatus.success,
+          progress: 1.0,
+        ),
+      ];
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -201,6 +216,7 @@ class _Stage1UploadFcs extends StatelessWidget {
         UploadZone(
           isDark: isDark,
           label: 'Drag & Drop or Click to Browse',
+          initialFiles: initialFiles,
           onFilesChanged: (files) => provider.updateFcsUploadFromFiles(files),
         ),
       ],
@@ -221,6 +237,20 @@ class _Stage2UploadAnnotation extends StatelessWidget {
     final labelColor =
         isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
 
+    // Pre-populate for re-run: show the previously uploaded file.
+    List<UploadFile>? initialFiles;
+    if (provider.annotationUploaded && provider.annotationFilename != null) {
+      initialFiles = [
+        UploadFile(
+          id: 'rerun_annotation',
+          filename: provider.annotationFilename!,
+          fileSize: 0,
+          status: UploadFileStatus.success,
+          progress: 1.0,
+        ),
+      ];
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -232,6 +262,7 @@ class _Stage2UploadAnnotation extends StatelessWidget {
         UploadZone(
           isDark: isDark,
           label: 'Drag & Drop or Click to Browse',
+          initialFiles: initialFiles,
           onFilesChanged: (files) =>
               provider.updateAnnotationUploadFromFiles(files),
         ),
