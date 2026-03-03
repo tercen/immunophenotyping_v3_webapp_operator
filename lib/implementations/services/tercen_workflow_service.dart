@@ -868,11 +868,13 @@ class TercenWorkflowService implements DataService {
         ..workflowId = workflow.id
         ..workflowRev = workflow.rev;
 
-      // Only run DataSteps — TableSteps are input sources with file
-      // connections that must NOT be reset. V2 never populates stepsToReset
-      // and only adds DataStep IDs to stepsToRun.
+      // Run all executable steps EXCEPT TableSteps (which are input sources
+      // with file connections that must NOT be reset).  This includes both
+      // DataSteps (computation) AND ViewSteps (visualisation).  ViewStep
+      // extends Step directly — it is NOT a subclass of DataStep — so a
+      // plain `is DataStep` check silently skips all visualisation steps.
       for (final step in workflow.steps) {
-        if (step is DataStep) {
+        if (step is! TableStep) {
           task.stepsToRun.add(step.id);
         }
       }
