@@ -861,6 +861,67 @@ class TercenWorkflowService implements DataService {
     return _readChannelReference(wf);
   }
 
+  @override
+  Future<int> getMaxEventsPerFile(String workflowId) async {
+    final wf = await _factory.workflowService.get(workflowId);
+    return _readMaxEventsPerFile(wf);
+  }
+
+  /// Read the maximum event count across FCS files from the "Observations"
+  /// schema of the "Read FCS" step output. The Observations relation has one
+  /// row per event with a `filename` column.
+  Future<int> _readMaxEventsPerFile(Workflow wf) async {
+    DataStep? readFcsStep;
+    for (final step in wf.steps) {
+      if (step is DataStep && step.name == 'Read FCS') {
+        readFcsStep = step;
+        break;
+      }
+    }
+    if (readFcsStep == null || readFcsStep.state.taskState is! DoneState) {
+      return 0;
+    }
+
+    final relations = _getSimpleRelations(readFcsStep.computedRelation);
+    if (relations.isEmpty) return 0;
+
+    final schemaIds = relations.map((r) => r.id).toList();
+    final schemas = await _factory.tableSchemaService.list(schemaIds);
+
+    // Find the "Observations" schema (one row per event, has filename column)
+    Schema? obsSchema;
+    for (final sch in schemas) {
+      if (sch.name == 'Observations') {
+        obsSchema = sch;
+        break;
+      }
+    }
+    if (obsSchema == null || obsSchema.nRows == 0) return 0;
+
+    // Find the filename column
+    final filenameCol = obsSchema.columns
+        .where((c) => c.name.contains('filename'))
+        .firstOrNull;
+    if (filenameCol == null) return 0;
+
+    // Read all filename values and count per file
+    final table = await _factory.tableSchemaService.select(
+      obsSchema.id,
+      [filenameCol.name],
+      0,
+      obsSchema.nRows,
+    );
+
+    final filenames = _getColumnValues<String>(table, filenameCol.name);
+    if (filenames == null || filenames.isEmpty) return 0;
+
+    final counts = <String, int>{};
+    for (final fn in filenames) {
+      counts[fn] = (counts[fn] ?? 0) + 1;
+    }
+    return counts.values.reduce((a, b) => a > b ? a : b);
+  }
+
   // =============================================
   // Step output reading helpers
   // =============================================

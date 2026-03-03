@@ -26,11 +26,6 @@ class InputContent extends StatelessWidget {
     final textPrimary =
         isDark ? AppColorsDark.textPrimary : AppColors.textPrimary;
 
-    final primaryColor =
-        isDark ? AppColorsDark.primary : AppColors.primary;
-    final labelColor =
-        isDark ? AppColorsDark.textSecondary : AppColors.textSecondary;
-
     return Container(
       color: bgColor,
       child: Align(
@@ -49,19 +44,6 @@ class InputContent extends StatelessWidget {
                 provider.headerHeading,
                 style: AppTextStyles.h1.copyWith(color: textPrimary),
               ),
-              // Loading indicator shown during Stage 1/2 async advance
-              if (provider.isLoading) ...[
-                const SizedBox(height: AppSpacing.sm),
-                LinearProgressIndicator(color: primaryColor),
-                if (provider.currentRunningStep.isNotEmpty) ...[
-                  const SizedBox(height: AppSpacing.xs),
-                  Text(
-                    provider.currentRunningStep,
-                    style:
-                        AppTextStyles.bodySmall.copyWith(color: labelColor),
-                  ),
-                ],
-              ],
               const SizedBox(height: AppSpacing.lg),
               switch (provider.currentStage) {
                 0 => _Stage0ProjectSetup(isDark: isDark),

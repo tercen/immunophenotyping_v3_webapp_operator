@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../../di/service_locator.dart';
@@ -208,6 +209,7 @@ class AppStateProvider extends ChangeNotifier {
     _annotationFileDocId = null;
     _allChannels = [];
     _selectedChannels = {};
+    _maxEventsInLargestFile = 0;
     notifyListeners();
   }
 
@@ -325,6 +327,9 @@ class AppStateProvider extends ChangeNotifier {
     if (firstWithBytes != null) {
       _annotationBytes = firstWithBytes.bytes;
       _annotationUploadFilename = firstWithBytes.filename;
+
+      // Parse CSV to extract sample count and conditions
+      _parseCsvAnnotation(firstWithBytes.bytes!);
     }
     notifyListeners();
   }
@@ -380,11 +385,12 @@ class AppStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Max possible events (from uploaded data)
+  // Max possible events — largest file's event count (from Read FCS output).
+  // Falls back to 1000 if not yet known.
+  int _maxEventsInLargestFile = 0;
   int get maxPossibleEvents =>
-      _fcsTotalEvents > 0
-          ? (_fcsTotalEvents ~/ (_fcsFileCount > 0 ? _fcsFileCount : 1))
-              .clamp(400, 10000)
+      _maxEventsInLargestFile > 0
+          ? _maxEventsInLargestFile
           : 1000;
 
   // =============================================
@@ -713,6 +719,16 @@ class AppStateProvider extends ChangeNotifier {
         };
       }
 
+      // 6. Read max events per file for downsampling slider
+      final maxEvents =
+          await _dataService.getMaxEventsPerFile(_clonedWorkflowId!);
+      if (maxEvents > 0) {
+        _maxEventsInLargestFile = maxEvents;
+        // Clamp current slider values to the new max
+        if (_maxEventsPerFile > maxEvents) _maxEventsPerFile = maxEvents;
+        if (_minEventsPerFile > maxEvents) _minEventsPerFile = maxEvents;
+      }
+
       _isLoading = false;
       _currentRunningStep = '';
       navigateToStage(3);
@@ -897,6 +913,7 @@ class AppStateProvider extends ChangeNotifier {
     _fcsChannelCount = 0;
     _fcsTotalEvents = 0;
     _fcsUploaded = false;
+    _maxEventsInLargestFile = 0;
 
     _annotationFilename = null;
     _annotationSampleCount = 0;
@@ -1020,6 +1037,34 @@ class AppStateProvider extends ChangeNotifier {
       }
     }
     return 0;
+  }
+
+  /// Parse annotation CSV bytes to extract sample count and condition names.
+  /// Expects a header row followed by one row per sample. The first column
+  /// after the header that looks like a condition/sample identifier is used.
+  void _parseCsvAnnotation(Uint8List bytes) {
+    try {
+      final text = utf8.decode(bytes);
+      final lines = text
+          .split(RegExp(r'\r?\n'))
+          .where((l) => l.trim().isNotEmpty)
+          .toList();
+      if (lines.length < 2) return; // header only or empty
+
+      // Data rows (skip header)
+      final dataRows = lines.sublist(1);
+      _annotationSampleCount = dataRows.length;
+
+      // Extract first column values as condition identifiers
+      _annotationConditions = dataRows.map((row) {
+        final cells = row.split(',');
+        return cells.isNotEmpty ? cells.first.trim() : '';
+      }).where((c) => c.isNotEmpty).toList();
+
+      _annotationCrossCheckPassed = _annotationSampleCount > 0;
+    } catch (e) {
+      print('Failed to parse annotation CSV: $e');
+    }
   }
 
   /// Delete a run and its workflow from the project.

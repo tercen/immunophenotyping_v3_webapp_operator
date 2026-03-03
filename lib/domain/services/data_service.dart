@@ -92,4 +92,8 @@ abstract class DataService {
 
   /// Read FCS channels from the "Read FCS" step output of a workflow.
   Future<List<FcsChannel>> getChannelsFromWorkflow(String workflowId) async => [];
+
+  /// Read the maximum event count across all FCS files from the "Read FCS"
+  /// step output. Returns 0 if not available.
+  Future<int> getMaxEventsPerFile(String workflowId) async => 0;
 }

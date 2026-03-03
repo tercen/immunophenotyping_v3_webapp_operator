@@ -86,7 +86,7 @@ class StatusSection extends StatelessWidget {
         if (provider.selectedTeam.isNotEmpty) ...[
           const SizedBox(height: 2),
           Text(
-            provider.selectedTeam,
+            'Team: ${provider.selectedTeam}',
             style: AppTextStyles.bodySmall.copyWith(color: labelColor),
           ),
           const SizedBox(height: AppSpacing.sm),
