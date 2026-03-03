@@ -486,22 +486,43 @@ class TercenWorkflowService implements DataService {
   Future<String> uploadCsvAsTable(
       String filename, Uint8List bytes, String projectId) async {
     try {
-      // 1. Upload the raw file as a FileDocument
+      // V2 pattern (webapp_lib upload_table_component.dart uploadFileAsTable):
+      //  1. FileDocument with CSVFileMetadata set BEFORE upload
+      //  2. Pre-parse CSV to create a Schema with ColumnSchema entries
+      //  3. CSVTask with schema + CSVParserParam + state=InitState
+
+      final separator = filename.toLowerCase().endsWith('.tsv') ? '\t' : ',';
+      final contentType =
+          separator == '\t' ? 'text/tab-separated-values' : 'text/csv';
+
+      // 1. Upload file with CSV metadata on the FileDocument
+      final metadata = CSVFileMetadata()
+        ..separator = separator
+        ..quote = '"'
+        ..contentType = contentType
+        ..contentEncoding = 'utf-8';
       final fileDoc = FileDocument()
         ..name = filename
-        ..projectId = projectId;
+        ..projectId = projectId
+        ..metadata = metadata;
       final uploaded = await _factory.fileService
           .upload(fileDoc, Stream.value(bytes));
 
-      // 2. Get project owner for the CSVTask
+      // 2. Get project owner
       final project = await _factory.projectService.get(projectId);
 
-      // 3. Create and run a CSVTask to parse the CSV into a Tercen table.
-      //    CSVParserParam must be set explicitly — the default empty strings
-      //    for separator/encoding/quote cause the worker to fail with
-      //    "wrong format -- expect version as str".
+      // 3. Pre-parse CSV headers from bytes to build a Schema
+      final inputSchema = _createSchemaFromBytes(
+        bytes,
+        separator: separator,
+        filename: filename,
+        projectId: projectId,
+        owner: project.acl.owner,
+      );
+
+      // 4. Create CSVTask with schema + params
       final params = CSVParserParam()
-        ..separator = ','
+        ..separator = separator
         ..encoding = 'utf-8'
         ..quote = '"'
         ..hasHeaders = true
@@ -512,6 +533,7 @@ class TercenWorkflowService implements DataService {
         ..fileDocumentId = uploaded.id
         ..projectId = projectId
         ..owner = project.acl.owner
+        ..schema = inputSchema
         ..params = params;
       csvTask = await _factory.taskService.create(csvTask) as CSVTask;
       await _factory.taskService.runTask(csvTask.id);
@@ -522,7 +544,7 @@ class TercenWorkflowService implements DataService {
         throw Exception('CSVTask failed: ${failed.error}: ${failed.reason}');
       }
 
-      // 4. Return the schema ID from the completed CSVTask
+      // 5. Return the schema ID from the completed CSVTask
       final csvDone = doneTask as CSVTask;
       if (csvDone.schemaId.isEmpty) {
         throw StateError('CSVTask completed but returned no schemaId');
@@ -532,6 +554,55 @@ class TercenWorkflowService implements DataService {
       print('Tercen error in uploadCsvAsTable: $e');
       rethrow;
     }
+  }
+
+  /// Pre-parse CSV bytes to build a Schema with ColumnSchema entries.
+  /// V2's _createFileSchema downloads the file and parses; since we already
+  /// have the bytes in memory we parse directly.
+  Schema _createSchemaFromBytes(
+    Uint8List bytes, {
+    required String separator,
+    required String filename,
+    required String projectId,
+    required String owner,
+  }) {
+    final text = utf8.decode(bytes);
+    final lines = text
+        .split(RegExp(r'\r?\n'))
+        .where((l) => l.trim().isNotEmpty)
+        .toList();
+    if (lines.isEmpty) {
+      throw StateError('CSV file is empty');
+    }
+
+    final headers = lines.first.split(separator).map((h) => h.trim()).toList();
+    // Sample up to 5 data rows to infer column types
+    final dataRows = lines.length > 1 ? lines.sublist(1, math.min(6, lines.length)) : <String>[];
+
+    final schema = Schema()
+      ..name = filename
+      ..projectId = projectId
+      ..acl.owner = owner;
+
+    for (int i = 0; i < headers.length; i++) {
+      final colName = headers[i];
+      // Infer type from sample values
+      String colType = 'string';
+      if (dataRows.isNotEmpty) {
+        final values = dataRows.map((row) {
+          final cells = row.split(separator);
+          return i < cells.length ? cells[i].trim() : '';
+        }).where((v) => v.isNotEmpty);
+        if (values.isNotEmpty && values.every((v) => double.tryParse(v) != null)) {
+          colType = 'double';
+        }
+      }
+      schema.columns.add(ColumnSchema()
+        ..name = colName
+        ..type = colType);
+    }
+
+    return schema;
   }
 
   // =============================================
