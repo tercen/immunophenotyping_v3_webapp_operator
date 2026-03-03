@@ -498,6 +498,7 @@ class TercenWorkflowService implements DataService {
 
       // 3. Create and run a CSVTask to parse the CSV into a Tercen table
       var csvTask = CSVTask()
+        ..state = InitState()
         ..fileDocumentId = uploaded.id
         ..projectId = projectId
         ..owner = project.acl.owner;
