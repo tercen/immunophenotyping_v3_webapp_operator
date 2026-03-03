@@ -40,6 +40,10 @@ class StatusSection extends StatelessWidget {
       stateLabel = 'Running';
       stateColor = isDark ? AppColorsDark.primary : AppColors.primary;
       statusMessage = '${provider.completedSteps} of ${provider.totalSteps} steps complete';
+    } else if (provider.isLoading) {
+      stateLabel = 'Processing';
+      stateColor = isDark ? AppColorsDark.primary : AppColors.primary;
+      statusMessage = '';
     } else if (provider.contentMode == ContentMode.display) {
       final run = provider.selectedRun;
       final result = provider.currentResult;
@@ -120,6 +124,20 @@ class StatusSection extends StatelessWidget {
                 style:
                     AppTextStyles.bodySmall.copyWith(color: textSecondary),
               ),
+              const SizedBox(height: AppSpacing.xs),
+              Text(
+                provider.currentRunningStep,
+                style: AppTextStyles.bodySmall.copyWith(
+                  color: isDark ? AppColorsDark.primary : AppColors.primary,
+                ),
+              ),
+            ],
+          )
+        else if (provider.isLoading && provider.currentRunningStep.isNotEmpty)
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const LinearProgressIndicator(),
               const SizedBox(height: AppSpacing.xs),
               Text(
                 provider.currentRunningStep,

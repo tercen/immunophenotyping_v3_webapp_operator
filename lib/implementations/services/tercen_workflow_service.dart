@@ -266,35 +266,19 @@ class TercenWorkflowService implements DataService {
         }
       }
 
-      // Fallback: column names of the "Read FCS" schema are the channel names.
-      // Skips system/metadata columns (dot-prefix).
-      DataStep? readFcsStep;
-      for (final step in wf.steps) {
-        if (step is DataStep && step.name == 'Read FCS') {
-          readFcsStep = step;
-          break;
+      // Fallback: "Read FCS" outputs a gathered (long-format) table with
+      // columns: event_id, Channel_id, value.  The actual FCS channel names
+      // are the distinct values inside the "Channel_id" column.
+      final readFcsTable = await _readStepOutput(wf, 'Read FCS');
+      if (readFcsTable != null) {
+        final channelIds = _getColumnValues<String>(readFcsTable, 'Channel_id');
+        if (channelIds != null && channelIds.isNotEmpty) {
+          final uniqueNames = channelIds.toSet().toList()..sort();
+          return uniqueNames.map((name) {
+            final isQc = _isQcChannel(name, name);
+            return FcsChannel(name: name, description: name, isQc: isQc);
+          }).toList();
         }
-      }
-      if (readFcsStep == null ||
-          readFcsStep.state.taskState is! DoneState) return [];
-
-      final relations = _getSimpleRelations(readFcsStep.computedRelation);
-      if (relations.isEmpty) return [];
-
-      final schemaIds = relations.map((r) => r.id).toList();
-      final schemas = await _factory.tableSchemaService.list(schemaIds);
-
-      for (final schema in schemas) {
-        if (schema.columns.isEmpty) continue;
-        final channels = <FcsChannel>[];
-        for (final col in schema.columns) {
-          // Skip Tercen system columns (dot-prefixed) and row-key columns
-          if (col.name.startsWith('.') || col.name == 'documentId') continue;
-          final isQc = _isQcChannel(col.name, col.name);
-          channels.add(
-              FcsChannel(name: col.name, description: col.name, isQc: isQc));
-        }
-        if (channels.isNotEmpty) return channels;
       }
       return [];
     } catch (e) {
