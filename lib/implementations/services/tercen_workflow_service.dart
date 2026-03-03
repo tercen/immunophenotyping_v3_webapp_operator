@@ -246,45 +246,29 @@ class TercenWorkflowService implements DataService {
   /// Fallback: "Read FCS" step output has one column per FCS channel; the
   /// column names are the channel names. Available immediately after Stage 1
   /// preflight (only "Read FCS" has run).
+  /// Read FCS channel names from the "Read FCS" step output.
+  ///
+  /// The "Read FCS" operator outputs a gathered (long-format) table with
+  /// columns: event_id, Channel_id, value.  The actual FCS channel names
+  /// are the distinct values inside the "Channel_id" column.
+  ///
+  /// Throws if the step hasn't run, has no output, or the column is missing.
   Future<List<FcsChannel>> _readChannelReference(Workflow wf) async {
-    try {
-      // Primary: "Channel names and descriptions" step (name + description rows)
-      final nameDescTable =
-          await _readStepOutput(wf, 'Channel names and descriptions');
-      if (nameDescTable != null) {
-        final names = _getColumnValues<String>(nameDescTable, 'name');
-        final descriptions =
-            _getColumnValues<String>(nameDescTable, 'description');
-        if (names != null && names.isNotEmpty) {
-          return List.generate(names.length, (i) {
-            final desc = descriptions != null && i < descriptions.length
-                ? descriptions[i]
-                : names[i];
-            final isQc = _isQcChannel(names[i], desc);
-            return FcsChannel(name: names[i], description: desc, isQc: isQc);
-          });
-        }
-      }
-
-      // Fallback: "Read FCS" outputs a gathered (long-format) table with
-      // columns: event_id, Channel_id, value.  The actual FCS channel names
-      // are the distinct values inside the "Channel_id" column.
-      final readFcsTable = await _readStepOutput(wf, 'Read FCS');
-      if (readFcsTable != null) {
-        final channelIds = _getColumnValues<String>(readFcsTable, 'Channel_id');
-        if (channelIds != null && channelIds.isNotEmpty) {
-          final uniqueNames = channelIds.toSet().toList()..sort();
-          return uniqueNames.map((name) {
-            final isQc = _isQcChannel(name, name);
-            return FcsChannel(name: name, description: name, isQc: isQc);
-          }).toList();
-        }
-      }
-      return [];
-    } catch (e) {
-      print('Warning: could not read channel reference: $e');
-      return [];
+    final readFcsTable = await _readStepOutput(wf, 'Read FCS');
+    if (readFcsTable == null) {
+      throw StateError('Read FCS step has no output — it may not have run or completed.');
     }
+
+    final channelIds = _getColumnValues<String>(readFcsTable, 'Channel_id');
+    if (channelIds == null || channelIds.isEmpty) {
+      throw StateError('Read FCS output has no "Channel_id" column or it is empty.');
+    }
+
+    final uniqueNames = channelIds.toSet().toList()..sort();
+    return uniqueNames.map((name) {
+      final isQc = _isQcChannel(name, name);
+      return FcsChannel(name: name, description: name, isQc: isQc);
+    }).toList();
   }
 
   bool _isQcChannel(String name, String description) {
@@ -799,13 +783,8 @@ class TercenWorkflowService implements DataService {
 
   @override
   Future<List<FcsChannel>> getChannelsFromWorkflow(String workflowId) async {
-    try {
-      final wf = await _factory.workflowService.get(workflowId);
-      return _readChannelReference(wf);
-    } catch (e) {
-      print('Tercen error in getChannelsFromWorkflow: $e');
-      return [];
-    }
+    final wf = await _factory.workflowService.get(workflowId);
+    return _readChannelReference(wf);
   }
 
   // =============================================

@@ -284,24 +284,15 @@ class _Stage3ChannelSelection extends StatelessWidget {
               style:
                   AppTextStyles.sectionHeader.copyWith(color: labelColor),
             ),
-            if (provider.allChannels.isNotEmpty) ...[
-              const Spacer(),
-              Text(
-                '${provider.selectedChannelCount} of ${provider.allChannels.length} selected',
-                style: AppTextStyles.bodySmall.copyWith(color: labelColor),
-              ),
-            ],
+            const Spacer(),
+            Text(
+              '${provider.selectedChannelCount} of ${provider.allChannels.length} selected',
+              style: AppTextStyles.bodySmall.copyWith(color: labelColor),
+            ),
           ],
         ),
         const SizedBox(height: AppSpacing.controlSpacing),
-        if (provider.allChannels.isEmpty) ...[
-          Text(
-            'Channel list not yet available. All channels will be used automatically on the first run. '
-            'After the first analysis completes, re-run to select specific channels.',
-            style: AppTextStyles.body.copyWith(color: labelColor),
-          ),
-        ] else ...[
-          // Select All / Deselect All
+        // Select All / Deselect All
           Row(
             children: [
               OutlinedButton(
@@ -359,7 +350,6 @@ class _Stage3ChannelSelection extends StatelessWidget {
             );
           }).toList(),
         ),
-        ],
         const SizedBox(height: AppSpacing.lg),
         // DOWNSAMPLING section
         Text(

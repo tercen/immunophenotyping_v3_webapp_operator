@@ -534,9 +534,7 @@ class AppStateProvider extends ChangeNotifier {
         // File locally read is sufficient — upload + validation happen on Continue
         return _annotationUploaded;
       case 3:
-        // Allow proceeding when no channels are loaded yet (first run uses all).
-        // Once channels are populated from the Read FCS step, require at least one.
-        return _allChannels.isEmpty || selectedChannelCount > 0;
+        return selectedChannelCount > 0;
       case 4:
         return _runName.isNotEmpty;
       default:
@@ -852,22 +850,6 @@ class AppStateProvider extends ChangeNotifier {
   Future<void> _loadResults(String runId) async {
     try {
       _currentResult = await _dataService.getResults(runId);
-      // After the first run completes, reload channels from the workflow output
-      // so that re-runs can show real channel selection in Stage 3.
-      if (_allChannels.isEmpty) {
-        try {
-          final channels = await _dataService.getChannels();
-          if (channels.isNotEmpty) {
-            _allChannels = channels;
-            _selectedChannels = {
-              for (final ch in channels)
-                if (!ch.isQc) ch.name: true else ch.name: false,
-            };
-          }
-        } catch (e) {
-          print('Warning: could not reload channels after run: $e');
-        }
-      }
       notifyListeners();
     } catch (e) {
       print('Error loading results for $runId: $e');
