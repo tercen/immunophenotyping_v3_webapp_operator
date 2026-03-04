@@ -1010,7 +1010,8 @@ class TercenWorkflowService implements DataService {
   Future<void> renameWorkflow(String workflowId, String name) async {
     try {
       final wf = await _factory.workflowService.get(workflowId);
-      wf.name = name;
+      // Tercen document names must be URL-safe — strip forbidden characters.
+      wf.name = name.replaceAll(RegExp(r'[:/\\?#\[\]@!$&'"'"'()*+,;=]'), '_');
       // Move to project root folder (empty folderId) — V2 sets folderId
       // explicitly after copyApp to avoid "workflow_tests" subfolder.
       wf.folderId = '';

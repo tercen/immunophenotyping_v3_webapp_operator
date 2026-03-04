@@ -437,8 +437,9 @@ class AppStateProvider extends ChangeNotifier {
 
   String get defaultRunName {
     final now = DateTime.now();
+    // Tercen document names must be URL-safe — colons are forbidden.
     return 'Run - ${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+        '${now.hour.toString().padLeft(2, '0')}.${now.minute.toString().padLeft(2, '0')}';
   }
 
   // =============================================
