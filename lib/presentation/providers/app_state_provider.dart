@@ -88,6 +88,20 @@ class AppStateProvider extends ChangeNotifier {
         for (final ch in channels)
           if (!ch.isQc) ch.name: true else ch.name: false,
       };
+
+      // If the project already has completed runs, auto-select the latest
+      // and open in Display mode (skip Create Project screen).
+      if (history.isNotEmpty) {
+        final latest = history.first;
+        _selectedRunId = latest.id;
+        _headerHeading = latest.name;
+        _contentMode = ContentMode.display;
+        _currentRunningStep = 'Loading results...';
+        _isLoading = true;
+        notifyListeners();
+        await _loadResults(latest.id);
+        _currentRunningStep = '';
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -986,15 +1000,25 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   /// Select a history entry to view in Display mode.
-  void selectHistoryEntry(String runId) {
+  /// Shows a loading indicator while results/images are fetched.
+  Future<void> selectHistoryEntry(String runId) async {
     _selectedRunId = runId;
-    _contentMode = ContentMode.display;
     final run = selectedRun;
     if (run != null) {
       _headerHeading = run.name;
     }
     _appState = AppState.waiting;
-    _loadResults(runId);
+
+    // Show loading state while images download
+    _isLoading = true;
+    _currentRunningStep = 'Loading results...';
+    notifyListeners();
+
+    await _loadResults(runId);
+
+    _isLoading = false;
+    _currentRunningStep = '';
+    _contentMode = ContentMode.display;
     notifyListeners();
   }
 

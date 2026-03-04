@@ -172,7 +172,33 @@ class TercenWorkflowService implements DataService {
       }
     }
 
-    // 4. Try to read total channel count from Read FCS step output.
+    // 4. Read FCS/annotation file info from TableStep relations.
+    try {
+      for (final step in wf.steps) {
+        if (step is! TableStep) continue;
+        if (step.id == _fcsTableStepId) {
+          final docId = _extractDocumentId(step.model.relation);
+          if (docId != null && docId.isNotEmpty) {
+            settings['fcsFileDocId'] = docId;
+            try {
+              final doc = await _factory.fileService.get(docId);
+              settings['fcsFilename'] = doc.name;
+            } catch (_) {}
+          }
+        } else if (step.id == _annotationTableStepId) {
+          final docId = _extractDocumentId(step.model.relation);
+          if (docId != null && docId.isNotEmpty) {
+            settings['annotationFileDocId'] = docId;
+            try {
+              final doc = await _factory.fileService.get(docId);
+              settings['annotationFilename'] = doc.name;
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 5. Read total channel count and file count from Read FCS step output.
     try {
       final channels = await _readChannelReference(wf);
       if (channels.isNotEmpty) {
@@ -981,6 +1007,24 @@ class TercenWorkflowService implements DataService {
     rr.inNames.addAll(['documentId', '.documentId']);
     rr.outNames.addAll(['documentId', '.documentId']);
     return rr;
+  }
+
+  /// Extract the Tercen FileDocument ID from a TableStep's relation tree.
+  /// Returns null if not found.
+  String? _extractDocumentId(Relation? relation) {
+    if (relation == null) return null;
+    if (relation is InMemoryRelation) {
+      final tbl = relation.inMemoryTable;
+      final colIdx = tbl.columns.indexWhere((c) => c.name == '.documentId');
+      if (colIdx >= 0 && tbl.columns[colIdx].values.isNotEmpty) {
+        return tbl.columns[colIdx].values[0] as String;
+      }
+      return null;
+    }
+    if (relation is RenameRelation) {
+      return _extractDocumentId(relation.relation);
+    }
+    return null;
   }
 
   /// Generates a unique opaque ID (hex timestamp + random suffix).
