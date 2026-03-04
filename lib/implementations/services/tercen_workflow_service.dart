@@ -184,6 +184,7 @@ class TercenWorkflowService implements DataService {
             try {
               final doc = await _factory.fileService.get(docId);
               settings['fcsFilename'] = doc.name;
+              if (doc.size > 0) settings['fcsFileSize'] = doc.size;
             } catch (_) {}
           }
         } else if (step.id == _annotationTableStepId) {
