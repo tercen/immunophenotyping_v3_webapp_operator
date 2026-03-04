@@ -185,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: files.map((file) {
-                final icon = _iconForContentType(file.contentType);
+                final icon = _iconForFile(file.contentType, file.filename);
                 return ListTile(
                   leading: Icon(icon),
                   title: Text(file.filename),
@@ -246,15 +246,37 @@ class _HomeScreenState extends State<HomeScreen> {
     web.URL.revokeObjectURL(url);
   }
 
-  IconData _iconForContentType(String contentType) {
-    if (contentType.contains('pdf')) return Icons.picture_as_pdf;
-    if (contentType.contains('presentation') || contentType.contains('ppt')) {
+  IconData _iconForFile(String contentType, String filename) {
+    final ct = contentType.toLowerCase();
+    final fn = filename.toLowerCase();
+
+    // PDF
+    if (ct.contains('pdf') || fn.endsWith('.pdf')) return Icons.picture_as_pdf;
+    // PowerPoint
+    if (ct.contains('presentation') || ct.contains('ppt') ||
+        fn.endsWith('.pptx') || fn.endsWith('.ppt')) {
       return Icons.slideshow;
     }
-    if (contentType.contains('fcs') || contentType.contains('octet-stream')) {
+    // CSV / spreadsheet
+    if (ct.contains('csv') || ct.contains('spreadsheet') ||
+        fn.endsWith('.csv') || fn.endsWith('.tsv') || fn.endsWith('.xlsx')) {
+      return Icons.table_chart;
+    }
+    // Markdown / text
+    if (ct.contains('markdown') || fn.endsWith('.md') || fn.endsWith('.txt')) {
+      return Icons.article;
+    }
+    // ZIP / archive
+    if (ct.contains('zip') || ct.contains('gzip') || ct.contains('tar') ||
+        fn.endsWith('.zip') || fn.endsWith('.gz')) {
+      return Icons.folder_zip;
+    }
+    // FCS (flow cytometry)
+    if (fn.endsWith('.fcs') || ct.contains('fcs') ||
+        ct.contains('octet-stream')) {
       return Icons.science;
     }
-    return Icons.file_download;
+    return Icons.insert_drive_file;
   }
 
   void _confirmDelete(

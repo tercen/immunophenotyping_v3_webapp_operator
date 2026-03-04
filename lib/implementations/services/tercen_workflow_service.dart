@@ -26,6 +26,11 @@ const _templateWorkflowName = 'Flow Immunophenotyping - PhenoGraph';
 const _fcsTableStepId = '8346b5cb-5e4d-41ae-be35-313abe9500d0';
 const _annotationTableStepId = '15594fff-3f9f-4419-8d75-560034bc02e7';
 
+/// The "Channel Selection and Downsampling" step receives a NamedFilter
+/// that restricts data to user-selected channels.  Same ID as V2's
+/// "channelAndDownsample" / "Logicle Transformation" step.
+const _channelAndDownsampleStepId = '78726478-262f-40bd-acbd-8bed9ce0e274';
+
 /// Real Tercen data service for Flow E (Type 3 workflow manager).
 ///
 /// Uses entity services directly — no OperatorContext.
@@ -762,10 +767,53 @@ class TercenWorkflowService implements DataService {
         }
       }
 
-      // 2. Set algorithmic parameters on DataStep operator properties.
+      // 2. Apply channel selection as a NamedFilter on the
+      //    channelAndDownsample step (V2 pattern: addAndFilter).
+      //    Each selected channel becomes an AND filter expression
+      //    matching channel_name == <marker>, combined with OR logic.
       print('[setWorkflowProperties] Applying: channels=${selectedChannels.length}, '
           'maxEvents=$maxEventsPerFile, k=$phenographK, '
           'n_neighbors=$umapNNeighbors, min_dist=$umapMinDist, seed=$randomSeed');
+
+      if (selectedChannels.isNotEmpty) {
+        final channelFilter = NamedFilter()
+          ..logical = 'or'
+          ..not = false
+          ..name = 'Channel Selection';
+
+        for (final marker in selectedChannels) {
+          final andFilter = Filter()
+            ..logical = 'and'
+            ..not = false;
+          final expr = FilterExpr()
+            ..filterOp = 'equals'
+            ..stringValue = marker
+            ..factor = (Factor()
+              ..type = 'string'
+              ..name = 'channel_name');
+          andFilter.filterExprs.add(expr);
+          channelFilter.filterExprs.add(andFilter);
+        }
+
+        // Find the channelAndDownsample step and add the filter.
+        bool applied = false;
+        for (final step in workflow.steps) {
+          if (step is! DataStep) continue;
+          if (step.id == _channelAndDownsampleStepId) {
+            step.model.filters.namedFilters.add(channelFilter);
+            applied = true;
+            print('  ✓ Channel Selection filter applied to step "${step.name}" '
+                '(${selectedChannels.length} channels)');
+            break;
+          }
+        }
+        if (!applied) {
+          print('  ⚠ WARNING: channelAndDownsample step '
+              '$_channelAndDownsampleStepId not found in workflow!');
+        }
+      }
+
+      // 3. Set algorithmic parameters on DataStep operator properties.
       int matchedProps = 0;
       for (final step in workflow.steps) {
         if (step is! DataStep) continue;
@@ -787,9 +835,6 @@ class TercenWorkflowService implements DataService {
             case 'max_events':
             case 'max_events_per_file':
               pv.value = maxEventsPerFile.toString();
-            case 'channels':
-            case 'selected_channels':
-              pv.value = selectedChannels.join(',');
           }
           if (pv.value != oldValue) {
             print('  ✓ Step "$opName" prop "${pv.name}": "$oldValue" → "${pv.value}"');
