@@ -276,12 +276,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _confirmDelete(
       BuildContext context, AppStateProvider provider, String runId) {
+    final runName = provider.selectedRun?.name ?? runId;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete run?'),
-        content: const Text(
-          'This will permanently delete this run and its results.',
+        content: Text(
+          'Permanently delete "$runName" and its results?',
         ),
         actions: [
           TextButton(
