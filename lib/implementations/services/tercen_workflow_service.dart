@@ -177,7 +177,8 @@ class TercenWorkflowService implements DataService {
       for (final step in wf.steps) {
         if (step is! TableStep) continue;
         if (step.id == _fcsTableStepId) {
-          final docId = _extractDocumentId(step.model.relation);
+          // FCS TableStep: InMemoryRelation with .documentId → FileDocument
+          final docId = _extractRelationId(step.model.relation);
           if (docId != null && docId.isNotEmpty) {
             settings['fcsFileDocId'] = docId;
             try {
@@ -186,12 +187,19 @@ class TercenWorkflowService implements DataService {
             } catch (_) {}
           }
         } else if (step.id == _annotationTableStepId) {
-          final docId = _extractDocumentId(step.model.relation);
-          if (docId != null && docId.isNotEmpty) {
-            settings['annotationFileDocId'] = docId;
+          // Annotation TableStep: SimpleRelation(id=schemaId).
+          // Look up the schema's fileDocumentId to find the FileDocument.
+          final schemaId = _extractRelationId(step.model.relation);
+          if (schemaId != null && schemaId.isNotEmpty) {
+            settings['annotationFileDocId'] = schemaId;
             try {
-              final doc = await _factory.fileService.get(docId);
-              settings['annotationFilename'] = doc.name;
+              final schema = await _factory.tableSchemaService.get(schemaId);
+              if (schema.nRows > 0) {
+                settings['sampleCount'] = schema.nRows;
+              }
+              if (schema.name.isNotEmpty) {
+                settings['annotationFilename'] = schema.name;
+              }
             } catch (_) {}
           }
         }
@@ -1009,9 +1017,11 @@ class TercenWorkflowService implements DataService {
     return rr;
   }
 
-  /// Extract the Tercen FileDocument ID from a TableStep's relation tree.
+  /// Extract an ID from a TableStep's relation tree.
+  /// For FCS (InMemoryRelation): returns the `.documentId` column value.
+  /// For annotation (SimpleRelation): returns the schema ID.
   /// Returns null if not found.
-  String? _extractDocumentId(Relation? relation) {
+  String? _extractRelationId(Relation? relation) {
     if (relation == null) return null;
     if (relation is InMemoryRelation) {
       final tbl = relation.inMemoryTable;
@@ -1021,8 +1031,11 @@ class TercenWorkflowService implements DataService {
       }
       return null;
     }
+    if (relation is SimpleRelation) {
+      return relation.id.isNotEmpty ? relation.id : null;
+    }
     if (relation is RenameRelation) {
-      return _extractDocumentId(relation.relation);
+      return _extractRelationId(relation.relation);
     }
     return null;
   }

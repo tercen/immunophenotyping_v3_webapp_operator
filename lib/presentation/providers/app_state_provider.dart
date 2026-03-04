@@ -1132,14 +1132,14 @@ class AppStateProvider extends ChangeNotifier {
   }
 
   /// Delete a run and its workflow from the project.
-  void deleteRun(String runId) {
+  Future<void> deleteRun(String runId) async {
     // Delete the workflow on Tercen (async, fire-and-forget)
     _dataService.deleteWorkflow(runId);
 
     _runHistory.removeWhere((r) => r.id == runId);
     if (_selectedRunId == runId) {
       if (_runHistory.isNotEmpty) {
-        selectHistoryEntry(_runHistory.first.id);
+        await selectHistoryEntry(_runHistory.first.id);
       } else {
         _selectedRunId = null;
         _currentResult = null;
