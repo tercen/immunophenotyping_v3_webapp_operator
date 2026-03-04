@@ -734,6 +734,8 @@ class TercenWorkflowService implements DataService {
       // on the server side. Touching acl causes a JS-level null crash.
       final workflow =
           await _factory.workflowService.copyApp(templateId, projectId);
+      // Place in project root — avoids creating a "workflow_tests" subfolder.
+      workflow.folderId = '';
       final created = await _factory.workflowService.create(workflow);
       return created.id;
     } catch (e) {
