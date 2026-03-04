@@ -216,11 +216,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _downloadFile(BuildContext context, DataService dataService,
       String schemaId, String filename, String contentType) async {
-    // Show brief loading indicator.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Downloading $filename…')),
-    );
-
     try {
       final bytes = await dataService.downloadExportFile(schemaId, filename);
       _triggerBrowserDownload(bytes, filename, contentType);
