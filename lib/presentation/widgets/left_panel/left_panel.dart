@@ -29,7 +29,7 @@ class PanelSection {
 /// Only replace the sections list with app-specific sections.
 class LeftPanel extends StatefulWidget {
   final String appTitle;
-  final IconData appIcon;
+  final Widget appIcon;
   final List<PanelSection> sections;
 
   const LeftPanel({

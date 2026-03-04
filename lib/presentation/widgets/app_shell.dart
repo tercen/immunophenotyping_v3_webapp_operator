@@ -12,7 +12,7 @@ import 'left_panel/left_panel.dart';
 /// The Status Panel (LeftPanel) remains fully interactive during Running.
 class AppShell extends StatelessWidget {
   final String appTitle;
-  final IconData appIcon;
+  final Widget appIcon;
   final List<PanelSection> sections;
   final Widget content;
 

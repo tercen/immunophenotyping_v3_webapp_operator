@@ -2,6 +2,7 @@ import 'dart:js_interop';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:provider/provider.dart';
 import 'package:web/web.dart' as web;
 import '../providers/app_state_provider.dart';
@@ -81,7 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return AppShell(
       appTitle: 'Flow Immunophenotyping',
-      appIcon: Icons.biotech,
+      appIcon: SvgPicture.asset('assets/images/app_icon.svg', width: 20, height: 20),
       sections: const [
         PanelSection(
           icon: Icons.monitor_heart,

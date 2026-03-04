@@ -10,7 +10,7 @@ import 'package:provider/provider.dart';
 /// Expanded: icon + title + theme toggle + collapse chevron (left to right).
 /// Collapsed: icon only (centered). Theme toggle and chevron move to footer.
 class LeftPanelHeader extends StatelessWidget {
-  final IconData appIcon;
+  final Widget appIcon;
   final String appTitle;
   final bool isCollapsed;
   final VoidCallback onToggleCollapse;
@@ -38,14 +38,14 @@ class LeftPanelHeader extends StatelessWidget {
 
   Widget _buildCollapsed() {
     return Center(
-      child: Icon(appIcon, color: Colors.white, size: 20),
+      child: appIcon,
     );
   }
 
   Widget _buildExpanded(BuildContext context) {
     return Row(
       children: [
-        Icon(appIcon, color: Colors.white, size: 20),
+        appIcon,
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Text(

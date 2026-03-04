@@ -22,6 +22,7 @@ dependencies:
       url: https://github.com/tercen/sci_tercen_client.git
       ref: 1.15.1
       path: sci_tercen_client
+  flutter_svg: ^2.2.3
 
 dev_dependencies:
   flutter_test:
