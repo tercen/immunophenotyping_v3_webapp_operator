@@ -122,12 +122,64 @@ class TercenWorkflowService implements DataService {
       Workflow wf) async {
     final settings = <String, dynamic>{};
 
+    // 1. Read operator properties and map to the keys CurrentRunSection expects.
     for (final step in wf.steps) {
       if (step is! DataStep) continue;
       final props = step.model.operatorSettings.operatorRef.propertyValues;
       for (final pv in props) {
-        settings[pv.name] = pv.value;
+        switch (pv.name) {
+          case 'k':
+            settings['phenographK'] = int.tryParse(pv.value) ?? pv.value;
+          case 'n_neighbors':
+            settings['umapNNeighbors'] = int.tryParse(pv.value) ?? pv.value;
+          case 'min_dist':
+            settings['umapMinDist'] = double.tryParse(pv.value) ?? pv.value;
+          case 'seed':
+          case 'random_seed':
+            settings['randomSeed'] = int.tryParse(pv.value) ?? pv.value;
+          case 'max_events':
+          case 'max_events_per_file':
+            settings['maxEventsPerFile'] = int.tryParse(pv.value) ?? pv.value;
+        }
       }
+    }
+
+    // 2. Count selected channels from the NamedFilter on channelAndDownsample.
+    for (final step in wf.steps) {
+      if (step is! DataStep) continue;
+      if (step.id == _channelAndDownsampleStepId) {
+        for (final nf in step.model.filters.namedFilters) {
+          if (nf.name == 'Channel Selection') {
+            settings['selectedChannelCount'] = nf.filterExprs.length;
+            break;
+          }
+        }
+        break;
+      }
+    }
+
+    // 3. Read V2-style workflow metadata as fallback (selected.markers, setting.*).
+    for (final pair in wf.meta) {
+      switch (pair.key) {
+        case 'selected.markers':
+          final markers = pair.value.split('|@|');
+          settings['selectedChannelCount'] ??= markers.length;
+        case 'setting.seed':
+          settings['randomSeed'] ??= int.tryParse(pair.value) ?? pair.value;
+        case 'setting.downsampling':
+          settings['maxEventsPerFile'] ??=
+              int.tryParse(pair.value) ?? pair.value;
+      }
+    }
+
+    // 4. Try to read total channel count from Read FCS step output.
+    try {
+      final channels = await _readChannelReference(wf);
+      if (channels.isNotEmpty) {
+        settings['totalChannels'] = channels.length;
+      }
+    } catch (_) {
+      // Non-fatal — display will show 0 for total channels.
     }
 
     return settings;
@@ -845,6 +897,20 @@ class TercenWorkflowService implements DataService {
         }
       }
       print('[setWorkflowProperties] $matchedProps properties changed.');
+
+      // 4. Store settings as workflow metadata (V2 pattern) so history can read them.
+      workflow.meta.add(Pair()
+        ..key = 'selected.markers'
+        ..value = selectedChannels.join('|@|'));
+      workflow.meta.add(Pair()
+        ..key = 'setting.seed'
+        ..value = randomSeed.toString());
+      workflow.meta.add(Pair()
+        ..key = 'setting.maxEvents'
+        ..value = maxEventsPerFile.toString());
+      workflow.meta.add(Pair()
+        ..key = 'immuno.workflow'
+        ..value = 'true');
 
       await _factory.workflowService.update(workflow);
     } catch (e) {
