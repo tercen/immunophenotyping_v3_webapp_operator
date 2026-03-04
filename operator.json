@@ -1,6 +1,6 @@
 {
-  "name": "Flow Immunophenotyping - PhenoGraph",
-  "description": "Automated immunophenotyping pipeline for flow cytometry data using PhenoGraph clustering, UMAP visualization, and differential analysis.",
+  "name": "Flow Immunophenotyping",
+  "description": "Using PhenoGraph, UMAP, and Differential Analysis.",
   "isWebApp": true,
   "isViewOnly": false,
   "entryType": "app",

@@ -95376,7 +95376,7 @@ return new A.nS(q,B.dB,B.eN,o,p,s,A.w(t.N,t.y),r,$.aL())},
 $S:558}
 A.afv.prototype={
 $3(a,b,c){var s=A.aZk()
-return A.aPQ(A.aZj(),!1,B.Gv,s,b.b,"Flow Immunophenotyping - PhenoGraph")},
+return A.aPQ(A.aZj(),!1,B.Gv,s,b.b,"Flow Immunophenotyping")},
 $S:559}
 A.M7.prototype={
 P(){return"AppState."+this.b}}

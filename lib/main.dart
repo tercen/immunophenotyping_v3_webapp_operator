@@ -88,7 +88,7 @@ class ImmunophenotypingApp extends StatelessWidget {
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) {
           return MaterialApp(
-            title: 'Flow Immunophenotyping - PhenoGraph',
+            title: 'Flow Immunophenotyping',
             theme: AppTheme.light,
             darkTheme: AppTheme.dark,
             themeMode: themeProvider.themeMode,
