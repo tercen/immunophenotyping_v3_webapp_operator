@@ -43,8 +43,6 @@ class LeftPanelHeader extends StatelessWidget {
   }
 
   Widget _buildExpanded(BuildContext context) {
-    final themeProvider = context.read<ThemeProvider>();
-
     return Row(
       children: [
         Icon(appIcon, color: Colors.white, size: 20),
@@ -59,18 +57,6 @@ class LeftPanelHeader extends StatelessWidget {
             ),
             overflow: TextOverflow.ellipsis,
           ),
-        ),
-        // Theme toggle
-        IconButton(
-          icon: Icon(
-            themeProvider.isDarkMode ? Icons.wb_sunny : Icons.dark_mode,
-            color: Colors.white,
-            size: 20,
-          ),
-          onPressed: themeProvider.toggleTheme,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          tooltip: themeProvider.isDarkMode ? 'Switch to light mode' : 'Switch to dark mode',
         ),
         // Collapse chevron
         IconButton(

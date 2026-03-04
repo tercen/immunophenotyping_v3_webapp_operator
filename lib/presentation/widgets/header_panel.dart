@@ -66,7 +66,23 @@ class HeaderPanel extends StatelessWidget {
           ..._buildActions(provider, isDark),
           // Spacer fills all available width (responsive to screen size)
           const Spacer(),
-          // Divider + Exit — pinned to right edge
+          // Theme toggle + Divider + Exit — pinned to right edge
+          Builder(builder: (ctx) {
+            final themeProvider = ctx.read<ThemeProvider>();
+            return IconButton(
+              onPressed: themeProvider.toggleTheme,
+              icon: Icon(
+                isDark ? Icons.wb_sunny : Icons.dark_mode,
+                size: 18,
+                color: isDark ? AppColorsDark.textSecondary : AppColors.textSecondary,
+              ),
+              tooltip: isDark ? 'Switch to light mode' : 'Switch to dark mode',
+              splashRadius: 16,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            );
+          }),
+          const SizedBox(width: AppSpacing.xs),
           Container(width: 1, height: 20, color: borderColor),
           const SizedBox(width: AppSpacing.sm),
           IconButton(
