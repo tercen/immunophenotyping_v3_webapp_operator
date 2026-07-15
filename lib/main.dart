@@ -6,6 +6,10 @@ import 'package:sci_tercen_client/sci_service_factory_web.dart';
 
 import 'core/theme/app_theme.dart';
 import 'di/service_locator.dart';
+import 'domain/services/data_service.dart';
+import 'implementations/sarno/bootstrap.dart';
+import 'implementations/sarno/sarno_client.dart';
+import 'implementations/services/sarno_workflow_service.dart';
 import 'presentation/providers/app_state_provider.dart';
 import 'presentation/providers/theme_provider.dart';
 import 'presentation/screens/home_screen.dart';
@@ -31,8 +35,22 @@ void main() async {
 
   ServiceFactory? factory;
   String? projectId;
+  DataService? sarnoService;
 
-  if (!useMocks) {
+  // Sarno backend takes precedence: if the board injected `sarno-*` meta tags,
+  // this app is served by a Sarno board — use the Sarno DataService.
+  try {
+    final sarnoCfg = sarnoConfigFromMetaTags();
+    if (sarnoCfg != null) {
+      print('Sarno bootstrap: $sarnoCfg');
+      projectId = sarnoCfg.projectId;
+      sarnoService = SarnoWorkflowService(SarnoClient(sarnoCfg), sarnoCfg);
+    }
+  } catch (e) {
+    print('Sarno bootstrap failed: $e');
+  }
+
+  if (sarnoService == null && !useMocks) {
     try {
       // projectId is optional — Stage 0 creates the project.
       projectId = Uri.base.queryParameters['projectId'];
@@ -45,9 +63,10 @@ void main() async {
 
   try {
     setupServiceLocator(
-      useMocks: factory == null,
+      useMocks: sarnoService == null && factory == null,
       factory: factory,
       projectId: projectId,
+      sarnoService: sarnoService,
     );
     final prefs = await SharedPreferences.getInstance();
     runApp(ImmunophenotypingApp(prefs: prefs));

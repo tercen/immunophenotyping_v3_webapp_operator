@@ -14,6 +14,7 @@ void setupServiceLocator({
   bool useMocks = true,
   ServiceFactory? factory,
   String? projectId,
+  DataService? sarnoService,
 }) {
   if (serviceLocator.isRegistered<DataService>()) return;
 
@@ -23,7 +24,10 @@ void setupServiceLocator({
     instanceName: 'projectId',
   );
 
-  if (useMocks) {
+  if (sarnoService != null) {
+    // Sarno backend (app served by a Sarno board — meta tags present).
+    serviceLocator.registerSingleton<DataService>(sarnoService);
+  } else if (useMocks) {
     serviceLocator.registerLazySingleton<DataService>(
       () => MockDataService(),
     );
